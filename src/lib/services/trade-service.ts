@@ -20,6 +20,7 @@ export interface CreateTradeInput {
   is_violation?: boolean;
   violation_reason?: string;
   stock_role?: StockRole;
+  industry?: string;
 }
 
 export interface AddPositionInput {
@@ -84,6 +85,7 @@ export async function createTrade(input: CreateTradeInput): Promise<TradeRecord>
     .insert({
       stock_code: input.stock_code,
       stock_name: input.stock_name,
+      industry: input.industry,
       buy_time: now,
       buy_price: input.buy_price,
       position: input.position,

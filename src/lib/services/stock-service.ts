@@ -132,3 +132,74 @@ export async function searchStocks(
   }
   return (data || []) as unknown as StockSearchResult[];
 }
+
+/**
+ * 精确查询单只股票：本地库没有时调东财兜底，并返回行业字段
+ */
+export async function getStockByCode(code: string): Promise<StockSearchResult | null> {
+  const c = (code || "").trim();
+  if (!/^\d{6}$/.test(c)) return null;
+  await ensureSeed();
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("stock")
+    .select("code, name, market, industry")
+    .eq("code", c)
+    .maybeSingle();
+  if (error) {
+    console.error("getStockByCode error:", error);
+  }
+  if (data && data.name && data.industry) {
+    return data as unknown as StockSearchResult;
+  }
+  // 东财兜底
+  const remote = await fetchStockFromEastMoney(c);
+  if (remote) {
+    // 异步落库
+    supabase
+      .from("stock")
+      .upsert({
+        stock_id: c,
+        code: c,
+        name: remote.name,
+        market: remote.market,
+        industry: remote.industry,
+        status: "normal",
+      }, { onConflict: "code" })
+      .then((res: { error?: { message?: string } | null }) => {
+        if (res.error) console.error("stock upsert error:", res.error.message);
+      });
+    return remote;
+  }
+  return (data as unknown as StockSearchResult) || null;
+}
+
+async function fetchStockFromEastMoney(
+  code: string
+): Promise<StockSearchResult | null> {
+  const secid = code.startsWith("6") ? `1.${code}` : `0.${code}`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch(
+      `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f57,f58,f127`,
+      { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      data?: { f57?: string; f58?: string; f127?: string } | null;
+    };
+    const d = j.data;
+    if (!d || !d.f58) return null;
+    return {
+      code,
+      name: d.f58,
+      market: code.startsWith("6") ? "SH" : "SZ",
+      industry: (d.f127 || "").replace(/[ⅠⅡⅢⅣⅤ]/g, "").trim() || "未知",
+    };
+  } catch (e) {
+    console.warn("fetchStockFromEastMoney failed:", code, e);
+    return null;
+  }
+}

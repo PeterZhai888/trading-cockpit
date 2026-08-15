@@ -252,6 +252,25 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 .section-gap{height:8px}
 .loading{opacity:.5;pointer-events:none}
 
+/* ====== 自动获取字段统一样式 ====== */
+.form-input.is-auto{background:var(--card-hover);border-style:dashed;color:var(--text-main);cursor:not-allowed}
+.auto-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,0.12);color:#22c55e;font-weight:600;border:1px solid rgba(34,197,94,0.3)}
+.manual-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(234,179,8,0.12);color:#eab308;font-weight:600;border:1px solid rgba(234,179,8,0.3)}
+.field-wrap{position:relative}
+.field-wrap .lock-icon{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;opacity:0.45;pointer-events:none}
+.ai-suggest{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.12);color:#3b82f6;font-weight:600;border:1px solid rgba(59,130,246,0.3);cursor:pointer;line-height:1.2}
+.ai-suggest:hover{background:rgba(59,130,246,0.2)}
+.ai-suggest:disabled{opacity:0.5;cursor:not-allowed}
+.ai-suggest-detail{font-size:10px;color:var(--text-sec);line-height:1.4;margin-top:3px;min-height:14px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;background:var(--card-hover);border-radius:var(--radius-sm);margin-bottom:10px;font-size:11px;color:var(--text-sec)}
+.switch{position:relative;display:inline-block;width:34px;height:18px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider-sw{position:absolute;cursor:pointer;inset:0;background:#4a5568;border-radius:18px;transition:0.2s}
+.slider-sw::before{content:'';position:absolute;height:14px;width:14px;left:2px;top:2px;background:#fff;border-radius:50%;transition:0.2s}
+.switch input:checked+.slider-sw{background:#f97316}
+.switch input:checked+.slider-sw::before{transform:translateX(16px)}
+.sector-source{font-size:10px;color:var(--text-sec);margin-top:2px}
+
 /* ====== 复盘统计 ====== */
 .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .kpi{background:var(--input);border:1px solid var(--border);border-radius:6px;padding:10px}
@@ -449,22 +468,28 @@ const state = {
   trades: [],
   theme: null,
   currentTab: 'dashboard',
-  fetchedSource: null
+  fetchedSource: null,
+  marketSource: null,        // 已成功拉取的市场数据源（持久在 state）
+  sectorList: null,          // 申万一级行业列表
+  sectorScore: null,         // 当前板块量化评分
+  manualMode: false          // 手动修正模式
 };
 
 // ====== 数据加载 ======
 async function loadAll() {
   try {
-    const [m, a, t, th] = await Promise.all([
+    const [m, a, t, th, sl] = await Promise.all([
       fetch('/api/market/status').then(r=>r.json()),
       fetch('/api/account').then(r=>r.json()),
       fetch('/api/trades').then(r=>r.json()),
       fetch('/api/theme').then(r=>r.json()),
+      fetch('/api/sector/list').then(r=>r.json()).catch(()=>({success:false}))
     ]);
     state.market = m.success ? m.data : null;
     state.account = a.success ? a.data : null;
     state.trades = t.success ? t.data : [];
     state.theme = th.success ? th.data : null;
+    state.sectorList = sl.success ? sl.data?.list || [] : [];
   } catch(e) {
     console.error(e);
   }
@@ -730,37 +755,43 @@ function renderInput() {
   const m = state.market;
   const raw = m?.raw_data || {};
   const th = state.theme;
-  const src = state.fetchedSource;
+  // 若没有主动拉取过，但 raw 来自历史落库（没有 source），仍展示原始值
+  if (!state.marketSource && raw.up_count) state.marketSource = null;
   return `
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><span class="dot"></span>市场原始数据</div>
+        <div class="card-title"><span class="dot"></span>市场原始数据 <span class="auto-badge">全部自动获取</span></div>
         <span class="card-meta">自动计算环境+情绪</span>
       </div>
       <div class="card-body">
-        <button class="btn btn-primary btn-block" id="btn-fetch" onclick="fetchMarketFromEM()" style="margin-bottom:12px;display:inline-flex;align-items:center;justify-content:center;gap:8px">
+        <button class="btn btn-primary btn-block" id="btn-fetch" onclick="fetchMarketFromEM()" style="margin-bottom:10px;display:inline-flex;align-items:center;justify-content:center;gap:8px">
           <span id="fetch-icon">⟳</span>
-          <span id="fetch-text">一键拉取东方财富实时数据</span>
+          <span id="fetch-text">${state.marketSource ? '重新拉取东方财富实时数据' : '一键拉取东方财富实时数据'}</span>
         </button>
-        ${src ? `
-          <div id="fetch-meta" style="margin-bottom:12px;padding:8px 10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:11px;color:var(--text-sec);line-height:1.6">
+        <label class="toggle-row">
+          <span>🔓 手动修正模式（数据异常/非交易时段兜底）</span>
+          <span class="switch"><input type="checkbox" id="manual-mode" onchange="toggleManualMode(this.checked)"><span class="slider-sw"></span></span>
+        </label>
+        ${state.marketSource ? `
+          <div id="fetch-meta" style="margin-bottom:10px;padding:8px 10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:11px;color:var(--text-sec);line-height:1.6">
             数据源：<b style="color:var(--text-main)">东方财富</b>
-            · 交易日 ${src.trade_date}
-            · 拉取于 ${new Date(src.fetched_at).toLocaleTimeString('zh-CN',{hour12:false})}
-            ${src.warnings && src.warnings.length ? `<br>⚠ ${src.warnings.join('；')}` : ''}
+            · 交易日 ${state.marketSource.trade_date}
+            · 拉取于 ${new Date(state.marketSource.fetched_at).toLocaleTimeString('zh-CN',{hour12:false})}
+            ${state.marketSource.warnings && state.marketSource.warnings.length ? `<br>⚠ ${state.marketSource.warnings.join('；')}` : ''}
           </div>` : ''}
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">上涨家数</label><input class="form-input mono" id="f_up" type="number" value="${raw.up_count||''}" placeholder="3000" oninput="recalcBrokenRate()"></div>
-          <div class="form-field"><label class="form-label">下跌家数</label><input class="form-input mono" id="f_down" type="number" value="${raw.down_count||''}" placeholder="1500"></div>
-          <div class="form-field"><label class="form-label">涨停数量</label><input class="form-input mono" id="f_lu" type="number" value="${raw.limit_up_count||''}" placeholder="50" oninput="recalcBrokenRate()"></div>
-          <div class="form-field"><label class="form-label">跌停数量</label><input class="form-input mono" id="f_ld" type="number" value="${raw.limit_down_count||''}" placeholder="5"></div>
-          <div class="form-field"><label class="form-label">炸板数量</label><input class="form-input mono" id="f_bc" type="number" value="${raw.broken_limit_count||''}" placeholder="10" oninput="recalcBrokenRate()"></div>
-          <div class="form-field">
-            <label class="form-label">炸板率(%) <span style="color:var(--text-sec);font-weight:400;font-size:10px" title="炸板率 = 炸板数 / (涨停数 + 炸板数)，与同花顺口径一致">ⓘ</span></label>
-            <input class="form-input mono" id="f_br" type="number" step="0.01" value="${raw.broken_limit_rate||''}" placeholder="自动" readonly style="background:var(--card-hover);color:var(--text-sec);cursor:not-allowed">
+          <div class="form-field field-wrap"><label class="form-label">上涨家数 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_up" type="number" value="${state.marketSource?.up_count ?? raw.up_count ?? ''}" placeholder="待拉取" readonly oninput="recalcBrokenRate()"><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap"><label class="form-label">下跌家数 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_down" type="number" value="${state.marketSource?.down_count ?? raw.down_count ?? ''}" placeholder="待拉取" readonly><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap"><label class="form-label">涨停数量 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_lu" type="number" value="${state.marketSource?.limit_up_count ?? raw.limit_up_count ?? ''}" placeholder="待拉取" readonly oninput="recalcBrokenRate()"><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap"><label class="form-label">跌停数量 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_ld" type="number" value="${state.marketSource?.limit_down_count ?? raw.limit_down_count ?? ''}" placeholder="待拉取" readonly><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap"><label class="form-label">炸板数量 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_bc" type="number" value="${state.marketSource?.broken_limit_count ?? raw.broken_limit_count ?? ''}" placeholder="待拉取" readonly oninput="recalcBrokenRate()"><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap">
+            <label class="form-label">炸板率(%) <span class="auto-badge">公式</span> <span style="color:var(--text-sec);font-weight:400;font-size:10px" title="炸板率 = 炸板数 / (涨停数 + 炸板数)，与同花顺口径一致">ⓘ</span></label>
+            <input class="form-input mono is-auto" id="f_br" type="number" step="0.01" value="${state.marketSource?.broken_limit_rate ?? raw.broken_limit_rate ?? ''}" placeholder="自动" readonly>
+            <span class="lock-icon">🔒</span>
           </div>
-          <div class="form-field"><label class="form-label">最高连板数</label><input class="form-input mono" id="f_cb" type="number" value="${raw.max_consecutive_boards||''}" placeholder="5"></div>
-          <div class="form-field"><label class="form-label">两市成交(亿)</label><input class="form-input mono" id="f_to" type="number" value="${raw.total_turnover?Math.round(raw.total_turnover/1e8):''}" placeholder="12000"></div>
+          <div class="form-field field-wrap"><label class="form-label">最高连板数 <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_cb" type="number" value="${state.marketSource?.max_consecutive_boards ?? raw.max_consecutive_boards ?? ''}" placeholder="待拉取" readonly><span class="lock-icon">🔒</span></div>
+          <div class="form-field field-wrap"><label class="form-label">两市成交(亿) <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_to" type="number" value="${state.marketSource ? Math.round(state.marketSource.total_amount_yi) : (raw.total_turnover?Math.round(raw.total_turnover/1e8):'')}" placeholder="待拉取" readonly><span class="lock-icon">🔒</span></div>
         </div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitMarket()">计算市场环境 & 情绪</button>
         ${m ? `
@@ -772,16 +803,51 @@ function renderInput() {
     </div>
 
     <div class="card">
-      <div class="card-header"><div class="card-title"><span class="dot"></span>主线评分录入</div></div>
+      <div class="card-header"><div class="card-title"><span class="dot"></span>主线评分 <span class="auto-badge">3项自动</span> <span class="manual-badge">3项主观</span></div></div>
       <div class="card-body">
+        <div class="form-field full" style="margin-bottom:10px">
+          <label class="form-label">主线板块（申万一级行业） <span class="auto-badge">选择后自动量化</span></label>
+          <select class="form-input" id="t_sector" onchange="onSectorChange(this.value)">
+            <option value="">-- 请选择板块 --</option>
+            ${(state.sectorList || []).map(s => `<option value="${s.board_code}" ${th?.sector_code === s.board_code ? 'selected' : ''}>${s.board_name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('')}
+          </select>
+          <div class="sector-source" id="sector-meta">${th?.sector_code ? `已选板块：${th.sector_name || ''}` : '选择板块后，资金强度/板块扩散/龙头表现自动评分'}</div>
+        </div>
         <div class="form-grid">
-          <div class="form-field full"><label class="form-label">主线名称</label><input class="form-input" id="t_name" value="${th?.theme_name||''}" placeholder="如：人工智能"></div>
-          <div class="form-field"><label class="form-label">资金强度 (0-25)</label><input class="form-input mono" id="t_cap" type="number" min="0" max="25" value="${th?.capital_score??''}"></div>
-          <div class="form-field"><label class="form-label">板块扩散 (0-20)</label><input class="form-input mono" id="t_sp" type="number" min="0" max="20" value="${th?.spread_score??''}"></div>
-          <div class="form-field"><label class="form-label">政策逻辑 (0-15)</label><input class="form-input mono" id="t_pol" type="number" min="0" max="15" value="${th?.policy_score??''}"></div>
-          <div class="form-field"><label class="form-label">持续性 (0-10)</label><input class="form-input mono" id="t_exp" type="number" min="0" max="10" value="${th?.expectation_score??''}"></div>
-          <div class="form-field"><label class="form-label">市场认可 (0-15)</label><input class="form-input mono" id="t_rec" type="number" min="0" max="15" value="${th?.recognition_score??''}"></div>
-          <div class="form-field"><label class="form-label">龙头表现 (0-15)</label><input class="form-input mono" id="t_ld" type="number" min="0" max="15" value="${th?.leader_performance_score??''}"></div>
+          <div class="form-field full"><label class="form-label">主线名称（可手工细化）</label><input class="form-input" id="t_name" value="${th?.theme_name||''}" placeholder="如：人工智能·算力"></div>
+          <div class="form-field field-wrap">
+            <label class="form-label">资金强度 <span class="auto-badge">自动</span></label>
+            <input class="form-input mono is-auto" id="t_cap" type="number" min="0" max="25" value="${th?.capital_score ?? state.sectorScore?.capital_score ?? ''}" readonly placeholder="待选板块">
+            <span class="lock-icon">🔒</span>
+            <div class="ai-suggest-detail" id="t_cap_detail">${state.sectorScore?.details?.capital || ''}</div>
+          </div>
+          <div class="form-field field-wrap">
+            <label class="form-label">板块扩散 <span class="auto-badge">自动</span></label>
+            <input class="form-input mono is-auto" id="t_sp" type="number" min="0" max="20" value="${th?.spread_score ?? state.sectorScore?.spread_score ?? ''}" readonly placeholder="待选板块">
+            <span class="lock-icon">🔒</span>
+            <div class="ai-suggest-detail" id="t_sp_detail">${state.sectorScore?.details?.spread || ''}</div>
+          </div>
+          <div class="form-field"><label class="form-label">政策逻辑 (0-15) <span class="manual-badge">主观</span></label><input class="form-input mono" id="t_pol" type="number" min="0" max="15" value="${th?.policy_score??''}"></div>
+          <div class="form-field">
+            <label class="form-label">持续性 (0-10) <span class="manual-badge">主观</span>
+              <button type="button" class="ai-suggest" onclick="getAiSuggest('expectation')" id="ai-exp-btn">🤖 AI建议</button>
+            </label>
+            <input class="form-input mono" id="t_exp" type="number" min="0" max="10" value="${th?.expectation_score??''}">
+            <div class="ai-suggest-detail" id="t_exp_detail"></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">市场认可 (0-15) <span class="manual-badge">主观</span>
+              <button type="button" class="ai-suggest" onclick="getAiSuggest('recognition')" id="ai-rec-btn">🤖 AI建议</button>
+            </label>
+            <input class="form-input mono" id="t_rec" type="number" min="0" max="15" value="${th?.recognition_score??''}">
+            <div class="ai-suggest-detail" id="t_rec_detail"></div>
+          </div>
+          <div class="form-field field-wrap">
+            <label class="form-label">龙头表现 <span class="auto-badge">自动</span></label>
+            <input class="form-input mono is-auto" id="t_ld" type="number" min="0" max="15" value="${th?.leader_performance_score ?? state.sectorScore?.leader_score ?? ''}" readonly placeholder="待选板块">
+            <span class="lock-icon">🔒</span>
+            <div class="ai-suggest-detail" id="t_ld_detail">${state.sectorScore?.details?.leader || ''}</div>
+          </div>
         </div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitTheme()">保存主线评分</button>
       </div>
@@ -852,7 +918,8 @@ async function fetchMarketFromEM() {
     const json = await res.json();
     if (!json.success) throw new Error(json.error || '抓取失败');
     const d = json.data;
-    state.fetchedSource = d;
+    state.marketSource = d;
+    state.manualMode = false;
     // 回填表单
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
     set('f_up', d.up_count);
@@ -864,13 +931,7 @@ async function fetchMarketFromEM() {
     set('f_cb', d.max_consecutive_boards);
     set('f_to', d.total_amount_yi);
     showToast(`已拉取 ${d.trade_date} 数据：涨停${d.limit_up_count}/炸板${d.broken_limit_count}/炸板率${d.broken_limit_rate}%`, 'success');
-    // 局部刷新顶部 meta，不重新整页 render
-    const meta = document.getElementById('fetch-meta');
-    if (meta) {
-      meta.innerHTML = `数据源：<b style="color:var(--text-main)">东方财富</b> · 交易日 ${d.trade_date} · 拉取于 ${new Date(d.fetched_at).toLocaleTimeString('zh-CN',{hour12:false})}${(d.warnings && d.warnings.length) ? '<br>⚠ ' + d.warnings.join('；') : ''}`;
-    } else {
-      switchTab('input');
-    }
+    switchTab('input');
   } catch(e) {
     showToast('抓取失败：' + (e.message || '请稍后重试或手工录入'), 'error');
     if (icon) icon.textContent = '⟳';
@@ -882,9 +943,150 @@ async function fetchMarketFromEM() {
   }
 }
 
+function toggleManualMode() {
+  state.manualMode = !state.manualMode;
+  if (state.manualMode) state.marketSource = null;
+  switchTab('input');
+}
+
+function recalcBrokenRate() {
+  const lu = +$('#f_lu')?.value || 0;
+  const bc = +$('#f_bc')?.value || 0;
+  const br = $('#f_br');
+  if (br) br.value = lu + bc > 0 ? (bc / (lu + bc) * 100).toFixed(2) : '0.00';
+}
+
+async function loadSectorList() {
+  const sel = $('#sector-select');
+  if (!sel || sel.options.length > 1) return;
+  try {
+    const r = await fetch('/api/sector/list');
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || '加载失败');
+    j.data.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.code; opt.textContent = s.name;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+  } catch(e) {
+    if (sel) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '板块列表加载失败';
+      sel.appendChild(opt);
+      sel.disabled = true;
+    }
+  }
+}
+
+async function fetchSectorScore() {
+  const code = $('#sector-select')?.value;
+  const name = $('#sector-select')?.selectedOptions?.[0]?.textContent || '';
+  if (!code) return showToast('请先选择主线板块', 'error');
+  const btn = $('#btn-sector-score');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 计算中...'; }
+  try {
+    const r = await fetch('/api/sector/score', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ sector_code: code, sector_name: name })
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || '计算失败');
+    state.sectorScore = j.data;
+    $('#t_name').value = name;
+    $('#t_cap').value = j.data.capital_score;
+    $('#t_sp').value = j.data.spread_score;
+    $('#t_ld').value = j.data.leader_performance_score;
+    // 持续性 / 认可：先清空，用户可点 AI 建议
+    $('#sector-suggestions').innerHTML = `
+      <div class="sk-line" style="width:90%"></div>
+      <div class="sk-line" style="width:75%"></div>
+    `;
+    showToast(`板块评分已计算：资金${j.data.capital_score}/扩散${j.data.spread_score}/龙头${j.data.leader_performance_score}`, 'success');
+    switchTab('input');
+  } catch(e) {
+    showToast('板块评分失败：' + (e.message || ''), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 计算自动评分'; }
+  }
+}
+
+async function suggestSectorScores() {
+  const s = state.sectorScore;
+  const box = $('#sector-suggestions');
+  if (!s) return showToast('请先选择板块并计算自动评分', 'error');
+  if (box) {
+    box.innerHTML = `<div class="sk-line" style="width:90%"></div><div class="sk-line" style="width:70%"></div>`;
+  }
+  try {
+    const prompt = `你是A股短线交易助手。根据以下板块实时数据，给出"持续性"和"市场认可度"两项 0-10 分的建议打分（仅建议，最终由用户决定）。请严格输出 JSON：{"continuity_suggested": 0-10整数, "continuity_reason":"15字内", "recognition_suggested":0-10整数, "recognition_reason":"15字内"}。
+板块：${s.sector_name}
+板块涨幅：${s.metrics.change_pct}%
+板块成交：${s.metrics.total_amount_yi}亿
+主力净流入：${s.metrics.net_inflow_yi}亿
+板块内上涨/下跌/涨停：${s.metrics.up_count}/${s.metrics.down_count}/${s.metrics.limit_up_count}
+连续上涨板块天数：${s.metrics.consecutive_up_days}
+龙头表现（涨幅前3）：${s.leaders.map(l=>`${l.name} ${l.change_pct}%`).join('、')}
+注意：禁止说"必涨/买入/保证盈利"，只做数据层面的建议。`;
+    const res = await fetch('/api/ai/analyze', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ analysis_type: 'sector_suggest', prompt })
+    });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', full = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'chunk') full = ev.content || '';
+        } catch {}
+      }
+    }
+    const parsed = JSON.parse(full);
+    const cs = Number(parsed.continuity_suggested || 0);
+    const rs = Number(parsed.recognition_suggested || 0);
+    const csScore = Math.max(0, Math.min(10, cs));
+    const rsScore = Math.max(0, Math.min(15, Math.round(rs * 1.5)));
+    if (box) {
+      box.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:13px;color:var(--text-main)">持续性建议：<b class="up">${csScore}</b>/10</div>
+            <div style="font-size:11px;color:var(--text-sub);margin-top:2px">${parsed.continuity_reason || ''}</div>
+          </div>
+          <button class="btn btn-sm" onclick="applySuggestion('t_exp', ${csScore})">采纳</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;">
+          <div>
+            <div style="font-size:13px;color:var(--text-main)">认可度建议：<b class="up">${rsScore}</b>/15</div>
+            <div style="font-size:11px;color:var(--text-sub);margin-top:2px">${parsed.recognition_reason || ''}</div>
+          </div>
+          <button class="btn btn-sm" onclick="applySuggestion('t_rec', ${rsScore})">采纳</button>
+        </div>
+      `;
+    }
+  } catch(e) {
+    if (box) box.innerHTML = `<div style="color:var(--down);font-size:12px">AI建议失败：${e.message || '请稍后再试'}</div>`;
+  }
+}
+
+function applySuggestion(id, val) {
+  const el = document.getElementById(id);
+  if (el) { el.value = val; el.focus(); }
+  showToast('已填入建议分，可手工调整', 'success');
+}
+
 async function submitTheme() {
   const name = $('#t_name').value.trim();
-  if (!name) return showToast('请输入主线名称','error');
+  if (!name) return showToast('请选择或输入主线板块','error');
   const body = {
     theme_name: name,
     capital_score: +$('#t_cap').value||0,
@@ -937,8 +1139,9 @@ function renderTrades() {
       <div class="card-header"><div class="card-title"><span class="dot"></span>新建交易</div></div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" data-ac-target="nt_name" data-ac-type="code" placeholder="600519" autocomplete="off"></div>
-          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" data-ac-target="nt_code" data-ac-type="name" placeholder="贵州茅台" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" data-ac-target="nt_name" data-ac-type="code" data-ac-industry="nt_industry" placeholder="600519" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" data-ac-target="nt_code" data-ac-type="name" data-ac-industry="nt_industry" placeholder="贵州茅台" autocomplete="off"></div>
+          <div class="form-field full"><label class="form-label">所属行业</label><input class="form-input readonly" id="nt_industry" readonly placeholder="输入代码后自动带出"></div>
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="nt_buy" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" value="100"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="nt_stop" type="number" step="0.001"></div>
@@ -1004,6 +1207,7 @@ async function submitTrade() {
   const body = {
     stock_code: $('#nt_code').value.trim(),
     stock_name: $('#nt_name').value.trim(),
+    industry: $('#nt_industry')?.value.trim() || undefined,
     buy_price: +$('#nt_buy').value,
     position: +$('#nt_pos').value||100,
     stop_price: +$('#nt_stop').value,
@@ -1102,8 +1306,9 @@ function renderCheck() {
       </div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" data-ac-target="rc_name" data-ac-type="code" placeholder="600519" autocomplete="off"></div>
-          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" data-ac-target="rc_code" data-ac-type="name" placeholder="可选" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" data-ac-target="rc_name" data-ac-type="code" data-ac-industry="rc_industry" placeholder="600519" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" data-ac-target="rc_code" data-ac-type="name" data-ac-industry="rc_industry" placeholder="可选" autocomplete="off"></div>
+          <div class="form-field full"><label class="form-label">所属行业</label><input class="form-input readonly" id="rc_industry" readonly placeholder="输入代码后自动带出"></div>
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001"></div>
           <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000"></div>
@@ -1570,8 +1775,27 @@ function pickStock(stock) {
   const target = document.getElementById(targetId);
   acCurrentInput.value = acCurrentInput.dataset.acType === 'code' ? stock.code : stock.name;
   if (target) target.value = acCurrentInput.dataset.acType === 'code' ? stock.name : stock.code;
+  const industryId = acCurrentInput.dataset.acIndustry;
+  const industryInput = industryId ? document.getElementById(industryId) : null;
+  if (industryInput) {
+    industryInput.value = stock.industry || '--';
+    if (!stock.industry) {
+      fetchStockIndustry(stock.code).then(ind => {
+        if (ind) industryInput.value = ind;
+      }).catch(()=>{});
+    }
+  }
   closeSuggest();
   acCurrentInput.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
+async function fetchStockIndustry(code) {
+  try {
+    const r = await fetch('/api/stock/info?code=' + encodeURIComponent(code));
+    const j = await r.json();
+    if (j.success && j.data?.industry) return j.data.industry;
+  } catch {}
+  return '';
 }
 
 async function searchStocks(keyword) {
