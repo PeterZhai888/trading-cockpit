@@ -758,6 +758,12 @@ function renderDashboard() {
         ${renderAdvice()}
       </div>
     </div>
+      <div style="padding:24px 0 16px;text-align:center;border-top:1px solid var(--border);margin-top:16px">
+        <button class="clear-btn" onclick="clearAllData()" style="padding:8px 24px;font-size:13px;color:var(--text-sec);background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s" onmouseover="this.style.background='var(--card-hover)';this.style.color='var(--red)'" onmouseout="this.style.background='transparent';this.style.color='var(--text-sec)'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:middle;margin-right:6px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空所有数据
+        </button>
+        <div style="font-size:10px;color:var(--text-disabled);margin-top:6px">将清空账户配置、市场数据、主线评分、持仓记录等所有手动输入数据</div>
+      </div>
   `;
 }
 
@@ -1357,6 +1363,49 @@ async function confirmClearTrades(type) {
     showToast(`已清空 ${r.data?.deleted || 0} 条${label}记录`, 'success');
     await loadAll();
   } catch(e) {
+    showToast(`清空失败：${e.message}`, 'error');
+  }
+}
+
+async function clearAllData() {
+  if (!confirm('确定要清空所有数据吗？\n\n将清空：账户配置、市场数据、主线评分、持仓记录、已平仓记录等所有手动输入数据。\n\n此操作不可撤销。')) return;
+  const btn = document.querySelector('.clear-btn');
+  if (btn) { btn.textContent = '⏳ 正在清空...'; btn.disabled = true; }
+  try {
+    // 清空前端缓存
+    localStorage.removeItem('cp_account');
+    state.riskCheck = null;
+    state.account = null;
+    state.market = null;
+    state.theme = null;
+    state.trades = null;
+    state.closed = null;
+
+    // 并行调用后端 DELETE API
+    const results = await Promise.allSettled([
+      api('/api/account', { method: 'DELETE' }).catch(() => {}),
+      api('/api/market/status', { method: 'DELETE' }).catch(() => {}),
+      api('/api/theme', { method: 'DELETE' }).catch(() => {}),
+      api('/api/trades?type=open', { method: 'DELETE' }).catch(() => {}),
+      api('/api/trades?type=closed', { method: 'DELETE' }).catch(() => {}),
+    ]);
+
+    const success = results.filter(r => r.status === 'fulfilled').length;
+    const fail = results.filter(r => r.status === 'rejected').length;
+
+    if (btn) { btn.textContent = ''; btn.disabled = false; }
+
+    // 重新加载所有数据
+    await loadAll();
+    renderTab(state.currentTab);
+
+    if (fail === 0) {
+      showToast(`已清空全部 ${success} 项数据`, 'success');
+    } else {
+      showToast(`已清空 ${success} 项，${fail} 项失败（可重试）`, 'warning');
+    }
+  } catch(e) {
+    if (btn) { btn.textContent = ''; btn.disabled = false; }
     showToast(`清空失败：${e.message}`, 'error');
   }
 }
