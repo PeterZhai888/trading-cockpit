@@ -72,6 +72,7 @@ html,body{background:var(--bg);color:var(--text);font-family:"PingFang SC","Micr
 .card-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
 .card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--blue)}
 .card-meta{font-size:11px;color:var(--text-sec)}
+.theme-score{font-size:32px;font-weight:800;color:var(--red);line-height:1.2}
 .card-body{padding:14px}
 
 /* 表单 */
@@ -685,7 +686,7 @@ function renderDashboard() {
     <div class="card">
       <div class="card-header">
         <div class="card-title"><span class="dot"></span>当前主线</div>
-        <span class="card-meta">${th?'评分 '+th.score:'--'}</span>
+        <span class="theme-score">${th?'评分 '+th.score:'--'}</span>
       </div>
       <div class="card-body">
         ${th ? `
@@ -1129,6 +1130,16 @@ async function fetchSectorScore(code) {
     const j = await r.json();
     if (!j.success) throw new Error(j.error || '计算失败');
     state.sectorScore = j.data;
+    // 同步预览到驾驶舱
+    state.theme = {
+      theme_name: name,
+      score: (j.data.capital_score||0)+(j.data.spread_score||0)+(j.data.leader_performance_score||0),
+      capital_score: j.data.capital_score,
+      spread_score: j.data.spread_score,
+      leader_performance_score: j.data.leader_performance_score,
+      suggestion: j.data.suggestion||'',
+      _preview: true
+    };
     const tn = $('#t_name'); if (tn) tn.value = name;
     const cap = $('#t_cap'); if (cap) cap.value = j.data.capital_score;
     const sp = $('#t_sp'); if (sp) sp.value = j.data.spread_score;
