@@ -257,6 +257,9 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 .form-input.is-auto{background:var(--card-hover);border-style:dashed;color:var(--text-main);cursor:not-allowed}
 .auto-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,0.12);color:#22c55e;font-weight:600;border:1px solid rgba(34,197,94,0.3)}
 .manual-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(234,179,8,0.12);color:#eab308;font-weight:600;border:1px solid rgba(234,179,8,0.3)}
+.clear-btn{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 10px;border-radius:4px;background:var(--card-hover);color:var(--text-sec);border:1px solid var(--border);cursor:pointer;line-height:1.4;transition:background .15s}
+.clear-btn:hover{background:var(--border);color:var(--text-main)}
+.clear-btn svg{width:13px;height:13px;flex-shrink:0}
 .field-wrap{position:relative}
 .field-wrap .lock-icon{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;opacity:0.45;pointer-events:none}
 .ai-suggest{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.12);color:#3b82f6;font-weight:600;border:1px solid rgba(59,130,246,0.3);cursor:pointer;line-height:1.2}
@@ -815,6 +818,9 @@ function renderInput() {
           <div class="form-field field-wrap"><label class="form-label">两市成交(亿) <span class="auto-badge">自动</span></label><input class="form-input mono is-auto" id="f_to" type="number" value="${state.marketSource ? Math.round(state.marketSource.total_amount_yi) : (raw.total_turnover?Math.round(raw.total_turnover/1e8):'')}" placeholder="待拉取" readonly><span class="lock-icon">🔒</span></div>
         </div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitMarket()">计算市场环境 & 情绪</button>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end">
+          <button class="clear-btn" onclick="confirmClear('市场原始数据','/api/market/status','DELETE')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空数据</button>
+        </div>
         ${m ? `
         <div style="margin-top:14px;padding:10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:12px;color:var(--text-sec)">
           上次计算：${m.environment} · ${m.score}分 · ${m.emotion_cycle} · ${lightName(m.emotion_light_suggested)}
@@ -873,6 +879,9 @@ function renderInput() {
         <!-- AI建议展示区 -->
         <div id="sector-suggestions" style="margin-top:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px;color:var(--text-sub)">点"AI建议"生成持续性 / 市场认可度参考分</div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitTheme()">保存主线评分</button>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end">
+          <button class="clear-btn" onclick="confirmClear('主线评分','/api/theme','DELETE')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空数据</button>
+        </div>
       </div>
     </div>
 
@@ -885,6 +894,9 @@ function renderInput() {
           <div class="form-field"><label class="form-label">单日上限(%)</label><input class="form-input mono" id="a_daily" type="number" step="0.1" value="${(state.account?.daily_risk_limit_pct??0.02)*100}"></div>
         </div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitAccount()">保存账户配置</button>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end">
+          <button class="clear-btn" onclick="confirmClear('账户配置','/api/account','DELETE')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空数据</button>
+        </div>
       </div>
     </div>
   `;
@@ -1306,6 +1318,32 @@ async function submitAccount() {
   } catch(e){}
 }
 
+// ====== 清空模块数据 ======
+function confirmClear(moduleName, apiPath, method) {
+  if (!confirm(`确定要清空「${moduleName}」的所有数据吗？此操作不可撤销。`)) return;
+  (async () => {
+    try {
+      await api(apiPath, { method });
+      showToast(`${moduleName}已清空`, 'success');
+      await loadAll();
+    } catch(e) {
+      showToast(`清空失败：${e.message}`, 'error');
+    }
+  })();
+}
+
+async function confirmClearTrades(type) {
+  const label = type === 'open' ? '当前持仓' : '已平仓';
+  if (!confirm(`确定要清空「${label}」的所有记录吗？此操作不可撤销。`)) return;
+  try {
+    const r = await api(`/api/trades?type=${type}`, { method: 'DELETE' });
+    showToast(`已清空 ${r.data?.deleted || 0} 条${label}记录`, 'success');
+    await loadAll();
+  } catch(e) {
+    showToast(`清空失败：${e.message}`, 'error');
+  }
+}
+
 async function confirmLight(light) {
   const m = state.market;
   if (!m) return showToast('请先录入市场数据','error');
@@ -1349,7 +1387,10 @@ function renderTrades() {
     </div>
 
     <div class="card">
-      <div class="card-header"><div class="card-title"><span class="dot"></span>当前持仓 (${open.length})</div></div>
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>当前持仓 (${open.length})</div>
+        <button class="clear-btn" onclick="confirmClearTrades('open')" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空</button>
+      </div></div>
       <div class="card-body" style="padding-top:4px">
         ${open.length ? open.map(t=>renderTradeItem(t,true)).join('') : '<div class="empty"><span class="icon">📭</span>无持仓</div>'}
       </div>
@@ -1357,7 +1398,10 @@ function renderTrades() {
 
     ${closed.length ? `
     <div class="card">
-      <div class="card-header"><div class="card-title"><span class="dot"></span>已平仓 (${closed.length})</div></div>
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>已平仓 (${closed.length})</div>
+        <button class="clear-btn" onclick="confirmClearTrades('closed')" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空</button>
+      </div></div>
       <div class="card-body" style="padding-top:4px">
         ${closed.slice(0,10).map(t=>renderTradeItem(t,false)).join('')}
       </div>

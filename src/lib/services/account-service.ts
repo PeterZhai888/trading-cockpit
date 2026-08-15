@@ -127,3 +127,19 @@ export async function resetConsecutiveLosses(): Promise<void> {
     suspension_end_date: null,
   });
 }
+
+/**
+ * 清空账户配置，重置为默认值
+ */
+export async function resetAccountConfig(): Promise<AccountConfig> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('account_config')
+    .update({ ...DEFAULT_CONFIG, updated_at: new Date().toISOString() })
+    .eq('id', 1)
+    .select()
+    .single();
+
+  if (error) throw new Error(`重置账户配置失败: ${error.message}`);
+  return mapConfig(data as Record<string, unknown>);
+}

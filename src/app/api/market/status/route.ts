@@ -3,6 +3,7 @@ import {
   getTodayMarketStatus,
   saveMarketRawData,
   confirmEmotionLight,
+  clearTodayMarketStatus,
 } from '@/lib/services/market-service';
 import type { MarketRawData, EmotionLight } from '@/lib/engine/types';
 
@@ -80,6 +81,20 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : '确认灯号失败';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/market/status
+ * 清空今日市场数据
+ */
+export async function DELETE() {
+  try {
+    await clearTodayMarketStatus();
+    return NextResponse.json({ success: true, message: '市场数据已清空' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '清空市场数据失败';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -89,3 +89,17 @@ export async function saveTheme(input: ThemeInput): Promise<ThemeRecord> {
   if (error || !data) throw new Error(`保存主线失败: ${error?.message ?? '未知错误'}`);
   return data as ThemeRecord;
 }
+
+/**
+ * 清空今日主线评分
+ */
+export async function clearTodayTheme(): Promise<void> {
+  const client = getSupabaseClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await client
+    .from('theme')
+    .delete()
+    .eq('date', today);
+
+  if (error) throw new Error(`清空主线数据失败: ${error.message}`);
+}

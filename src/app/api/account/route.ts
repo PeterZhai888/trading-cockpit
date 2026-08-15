@@ -4,6 +4,7 @@ import {
   updateAccountConfig,
   getSuspensionRemainingDays,
   resetConsecutiveLosses,
+  resetAccountConfig,
 } from '@/lib/services/account-service';
 
 export const runtime = 'nodejs';
@@ -78,6 +79,20 @@ export async function POST() {
     return NextResponse.json({ success: true, message: '连续亏损计数已重置' });
   } catch (err) {
     const message = err instanceof Error ? err.message : '重置失败';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/account
+ * 清空账户配置，重置为默认值
+ */
+export async function DELETE() {
+  try {
+    const config = await resetAccountConfig();
+    return NextResponse.json({ success: true, data: config });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '重置账户配置失败';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -123,3 +123,17 @@ export function getPreviewFinalLevel(
 ): FinalLevel {
   return calculatePreviewLevel(environment, suggestedLight);
 }
+
+/**
+ * 清空今日市场数据
+ */
+export async function clearTodayMarketStatus(): Promise<void> {
+  const client = getSupabaseClient();
+  const today = new Date().toISOString().split('T')[0];
+  const { error } = await client
+    .from('market_status')
+    .delete()
+    .eq('date', today);
+
+  if (error) throw new Error(`清空市场数据失败: ${error.message}`);
+}

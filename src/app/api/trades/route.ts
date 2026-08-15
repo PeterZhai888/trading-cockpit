@@ -5,6 +5,7 @@ import {
   addPosition,
   reducePosition,
   updateStopPrice,
+  clearTradesByStatus,
 } from '@/lib/services/trade-service';
 import { addDailyRisk } from '@/lib/services/risk-service';
 import { getAccountConfig } from '@/lib/services/account-service';
@@ -165,6 +166,28 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : '操作失败';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/trades?type=open 或 ?type=closed
+ * 批量清空持仓记录
+ */
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type') as 'open' | 'closed' | null;
+    if (!type || !['open', 'closed'].includes(type)) {
+      return NextResponse.json(
+        { error: '参数 type 必填，取值 open 或 closed' },
+        { status: 400 },
+      );
+    }
+    const count = await clearTradesByStatus(type);
+    return NextResponse.json({ success: true, data: { deleted: count } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '清空交易记录失败';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -276,6 +276,21 @@ export async function deleteTrade(tradeId: string): Promise<void> {
 }
 
 /**
+ * 批量清空交易记录（按状态）
+ */
+export async function clearTradesByStatus(status: 'open' | 'closed'): Promise<number> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('trade')
+    .delete()
+    .eq('status', status)
+    .select('trade_id');
+
+  if (error) throw new Error(`清空交易记录失败: ${error.message}`);
+  return (data || []).length;
+}
+
+/**
  * 获取连续亏损次数
  */
 export async function getConsecutiveLosses(): Promise<number> {
