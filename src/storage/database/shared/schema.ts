@@ -166,6 +166,28 @@ export const accountConfig = pgTable(
   }
 );
 
+// AI分析记录表（市场分析/个股分析/交易复盘）
+export const aiAnalysis = pgTable(
+  "ai_analysis",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    analysis_type: varchar("analysis_type", { length: 20 }).notNull(), // market / stock / review
+    stock_code: varchar("stock_code", { length: 10 }), // 个股分析/复盘时关联
+    trade_id: varchar("trade_id", { length: 36 }), // 复盘时关联
+    input_snapshot: jsonb("input_snapshot").notNull(), // 分析时的输入快照
+    result: jsonb("result"), // 结构化分析结果
+    raw_content: text("raw_content"), // AI原始流式输出
+    model_id: varchar("model_id", { length: 100 }),
+    tokens_used: integer("tokens_used"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ai_analysis_type_idx").on(table.analysis_type),
+    index("ai_analysis_stock_idx").on(table.stock_code),
+    index("ai_analysis_created_idx").on(table.created_at),
+  ]
+);
+
 // 每日风险记录表
 export const dailyRisk = pgTable(
   "daily_risk",

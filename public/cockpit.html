@@ -210,9 +210,32 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 
 /* tab */
 .tab-bar{display:flex;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:57px;z-index:90}
-.tab-btn{flex:1;padding:10px 4px;font-size:13px;color:var(--text-sec);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s}
+.tab-btn{flex:1;padding:9px 2px;font-size:12px;color:var(--text-sec);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;white-space:nowrap}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
 .tab-page{display:none}.tab-page.active{display:block}
+
+/* AI 分析 */
+.ai-type-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.ai-type-btn{padding:12px 4px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-hover);color:var(--text);font-size:12px;cursor:pointer;text-align:center;transition:all .15s;line-height:1.4}
+.ai-type-btn .ico{font-size:22px;display:block;margin-bottom:4px}
+.ai-type-btn.active{border-color:var(--blue);background:rgba(59,130,246,.12);color:var(--blue)}
+.ai-msg{background:var(--card-hover);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-top:10px;font-size:13px;line-height:1.7}
+.ai-msg .role{font-size:11px;color:var(--blue);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.ai-msg .role::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.ai-msg .typing-cursor{display:inline-block;width:7px;height:14px;background:var(--blue);margin-left:2px;vertical-align:middle;animation:blink 1s infinite}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+.ai-field{margin:6px 0;padding:6px 0;border-bottom:1px dashed var(--border)}
+.ai-field:last-child{border-bottom:none}
+.ai-field .k{color:var(--text-sec);font-size:11px;display:block;margin-bottom:2px}
+.ai-field .v{font-size:13px}
+.ai-json{background:rgba(0,0,0,.25);border-radius:var(--radius-xs);padding:10px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-sec);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin-top:8px}
+.ai-warn{background:rgba(234,179,8,.1);border-left:3px solid var(--yellow);padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;color:var(--yellow);margin-top:10px}
+.ai-err{background:rgba(239,68,68,.1);border-left:3px solid var(--red);padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;color:var(--red);margin-top:10px}
+.ai-history-item{background:var(--card-hover);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-top:8px;cursor:pointer;transition:border-color .15s}
+.ai-history-item:hover{border-color:var(--blue)}
+.ai-history-item .top{display:flex;justify-content:space-between;font-size:11px;color:var(--text-sec);margin-bottom:4px}
+.ai-history-item .preview{font-size:12px;color:var(--text);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ai-stop-btn{background:transparent;border:1px solid var(--red);color:var(--red);padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;margin-top:8px}
 
 /* 股票代码/名称自动补全 */
 .stock-field{position:relative}
@@ -262,9 +285,10 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
   <!-- Tab 导航 -->
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="dashboard">驾驶舱</button>
-    <button class="tab-btn" data-tab="input">数据录入</button>
+    <button class="tab-btn" data-tab="input">数据</button>
     <button class="tab-btn" data-tab="trades">持仓</button>
-    <button class="tab-btn" data-tab="check">风险检查</button>
+    <button class="tab-btn" data-tab="check">风控</button>
+    <button class="tab-btn" data-tab="ai">AI分析</button>
   </div>
   <div id="tabContent"></div>
 </div>
@@ -487,6 +511,9 @@ function renderTab(tab) {
   else if (tab==='input') c.innerHTML = renderInput();
   else if (tab==='trades') c.innerHTML = renderTrades();
   else if (tab==='check') c.innerHTML = renderCheck();
+  else if (tab==='ai') c.innerHTML = renderAI();
+  if (tab==='ai') loadAIHistory();
+  else if (tab==='ai') c.innerHTML = renderAI();
   bindTabEvents(tab);
 }
 
@@ -1064,6 +1091,322 @@ async function submitViolation() {
   if (!reason) return showToast('必须填写特批理由','error');
   showToast('特批已记录（实际开仓流程在交易模块执行）','success');
 }
+
+// ====== AI 分析 ======
+const aiState = {
+  scene: 'market',
+  loading: false,
+  abortCtrl: null,
+  result: null,       // { raw, parsed, usage }
+  history: []
+};
+
+function renderAI() {
+  const m = state.market;
+  const trades = state.trades;
+  const openTrades = trades.filter(t=>t.status==='open');
+  const closedTrades = trades.filter(t=>t.status==='closed');
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>AI 辅助分析</div>
+        <span class="card-meta">结构化输出 · 非交易建议</span>
+      </div>
+      <div class="card-body">
+        <div class="ai-scene-group">
+          <button class="ai-scene-btn ${aiState.scene==='market'?'active':''}" onclick="switchAIScene('market')">
+            <span class="ai-scene-icon">🌐</span>市场综合
+          </button>
+          <button class="ai-scene-btn ${aiState.scene==='stock'?'active':''}" onclick="switchAIScene('stock')">
+            <span class="ai-scene-icon">📊</span>个股分析
+          </button>
+          <button class="ai-scene-btn ${aiState.scene==='review'?'active':''}" onclick="switchAIScene('review')">
+            <span class="ai-scene-icon">📝</span>交易复盘
+          </button>
+        </div>
+
+        ${aiState.scene==='stock' ? `
+        <div class="form-grid" style="margin-top:12px">
+          <div class="form-field full" style="position:relative">
+            <label class="form-label">股票代码（选持仓或输入）</label>
+            <div style="display:flex;gap:8px">
+              <input class="form-input mono" id="ai_stock_code" placeholder="600519"
+                style="flex:1" oninput="bindStockAutocomplete(this,'ai_stock_name')" onblur="handleStockCodeBlur(this,'ai_stock_name')" onkeydown="handleStockKeydown(event,this,'ai_stock_name')">
+              <button class="btn btn-outline btn-sm" type="button" onclick="pickFirstTrade()" style="white-space:nowrap">取首笔持仓</button>
+            </div>
+            <div class="stock-suggest" id="ai_stock_code_suggest"></div>
+          </div>
+          <div class="form-field full" style="position:relative">
+            <label class="form-label">股票名称（可输入模糊搜索）</label>
+            <input class="form-input" id="ai_stock_name" placeholder="贵州茅台"
+              oninput="bindStockAutocomplete(this,'ai_stock_code')" onblur="handleStockNameBlur(this,'ai_stock_code')" onkeydown="handleStockKeydown(event,this,'ai_stock_code')">
+            <div class="stock-suggest" id="ai_stock_name_suggest"></div>
+          </div>
+        </div>
+        ` : ''}
+
+        ${aiState.scene==='review' ? `
+        <div class="form-field full" style="margin-top:12px">
+          <label class="form-label">选择复盘交易</label>
+          <select class="form-input" id="ai_trade_id">
+            ${closedTrades.length
+              ? closedTrades.map(t=>`<option value="${t.trade_id}">${t.stock_name||t.stock_code} ${t.stock_code} · 盈亏${t.profit_loss??'--'}</option>`).join('')
+              : '<option value="">暂无已平仓交易</option>'}
+          </select>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-sec);line-height:1.8">
+          ${closedTrades.length
+            ? `将基于所选已平仓交易进行单笔复盘分析。`
+            : `当前没有已平仓交易，无法生成交易复盘。`}
+          ${openTrades.length ? `<br>另有 <b style="color:var(--up)">${openTrades.length}</b> 笔未平仓，不参与盈亏统计。` : ''}
+        </div>
+        ` : ''}
+
+        ${aiState.scene==='market' && !m ? `
+        <div style="margin-top:12px" class="empty"><span class="icon">📡</span>请先在"数据录入"录入市场数据</div>
+        ` : ''}
+
+        <div style="margin-top:14px;display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1" id="aiRunBtn" onclick="runAIAnalysis()" ${aiState.loading?'disabled':''}>
+            ${aiState.loading ? '⏳ AI 分析中...' : '✨ 开始分析（流式输出）'}
+          </button>
+          ${aiState.loading ? `<button class="btn btn-outline" onclick="stopAIAnalysis()">停止</button>` : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-sec);margin-top:8px;line-height:1.5">
+          ⚠ AI 输出仅供分析参考，不构成交易建议。系统不会自动下单，所有交易决策必须由你人工确认。
+        </div>
+      </div>
+    </div>
+
+    <div id="aiResultBox" style="margin:12px"></div>
+    <div id="aiHistoryBox" style="margin:12px"></div>
+  `;
+}
+
+function switchAIScene(s) {
+  if (aiState.loading) { showToast('请先等待当前分析完成或停止','error'); return; }
+  aiState.scene = s;
+  aiState.result = null;
+  renderTab('ai');
+  loadAIHistory();
+}
+
+function pickFirstTrade() {
+  const open = state.trades.find(t=>t.status==='open');
+  if (!open) return showToast('当前无持仓','error');
+  const codeEl = $('#ai_stock_code'), nameEl = $('#ai_stock_name');
+  if (codeEl) codeEl.value = open.stock_code;
+  if (nameEl) nameEl.value = open.stock_name || '';
+  showToast('已填入首笔持仓：'+(open.stock_name||open.stock_code),'success');
+}
+
+async function runAIAnalysis() {
+  if (aiState.loading) return;
+  const scene = aiState.scene;
+  let payload = { analysis_type: scene };
+
+  if (scene === 'stock') {
+    const code = $('#ai_stock_code')?.value.trim();
+    const name = $('#ai_stock_name')?.value.trim();
+    if (!code && !name) return showToast('请输入股票代码或名称','error');
+    payload.stock_code = code;
+    payload.stock_name = name;
+  }
+
+  if (scene === 'review') {
+    const tradeId = $('#ai_trade_id')?.value;
+    if (!tradeId) return showToast('当前没有可复盘的已平仓交易','error');
+    payload.trade_id = tradeId;
+  }
+
+  aiState.loading = true;
+  aiState.result = null;
+  renderTab('ai');
+
+  const box = $('#aiResultBox');
+  box.innerHTML = `
+    <div class="card ai-result-card">
+      <div class="ai-result-header">
+        <span class="ai-result-title">AI 分析结果</span>
+        <span class="ai-status-badge running">● 流式输出中</span>
+      </div>
+      <div class="ai-stream" id="aiStream"></div>
+      <div class="ai-parse-box" id="aiParseBox" style="display:none"></div>
+    </div>`;
+  const streamEl = $('#aiStream');
+  const parseBox = $('#aiParseBox');
+
+  // 立即建立 SSE 连接
+  const ctrl = new AbortController();
+  aiState.abortCtrl = ctrl;
+
+  try {
+    const res = await fetch('/api/ai/analyze', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+      signal: ctrl.signal
+    });
+    if (!res.ok || !res.body) throw new Error('HTTP '+res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let rawText = '';
+    let meta = null;
+    let startedAt = Date.now();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        const dataStr = line.slice(5).trim();
+        if (dataStr === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(dataStr);
+          if (evt.type === 'meta') {
+            meta = evt;
+            const hdr = box.querySelector('.ai-status-badge');
+            if (hdr) hdr.textContent = '● 正在生成...';
+          } else if (evt.type === 'chunk') {
+            rawText = evt.content || rawText;
+            streamEl.textContent = rawText;
+            streamEl.scrollTop = streamEl.scrollHeight;
+          } else if (evt.type === 'result') {
+            aiState.result = { raw_text: evt.content || rawText, parsed_analysis: evt.result, model: meta?.model };
+            renderParsedAI(aiState.result, parseBox);
+            parseBox.style.display = 'block';
+            const hdr = box.querySelector('.ai-status-badge');
+            if (hdr) { hdr.textContent = '✓ 完成'; hdr.className = 'ai-status-badge done'; }
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue;
+          throw e;
+        }
+      }
+    }
+
+    if (!aiState.result && rawText) {
+      // 流式被切断时尝试本地解析
+      try {
+        const parsed = JSON.parse(rawText);
+        renderParsedAI({ raw_text: rawText, parsed_analysis: parsed, model: meta?.model }, parseBox);
+        parseBox.style.display = 'block';
+      } catch {}
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      streamEl.textContent += '\n\n[已手动停止]';
+      const hdr = box.querySelector('.ai-status-badge');
+      if (hdr) { hdr.textContent = '已停止'; hdr.className = 'ai-status-badge'; }
+    } else {
+      streamEl.innerHTML = `<div style="color:var(--red)">分析失败：${e.message}</div>`;
+      const hdr = box.querySelector('.ai-status-badge');
+      if (hdr) { hdr.textContent = '失败'; hdr.className = 'ai-status-badge error'; }
+    }
+  } finally {
+    aiState.loading = false;
+    aiState.abortCtrl = null;
+    const btn = $('#aiRunBtn');
+    if (btn) { btn.disabled = false; btn.textContent = '✨ 重新分析'; }
+    loadAIHistory();
+  }
+}
+
+function stopAIAnalysis() {
+  if (aiState.abortCtrl) aiState.abortCtrl.abort();
+}
+
+function renderParsedAI(result, box) {
+  const p = result.parsed_analysis || {};
+  const raw = result.raw_text || '';
+  // 从原始文本提取纯文字解释（去掉JSON）
+  const pureText = raw.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+  let jsonText = '';
+  try {
+    const m = pureText.match(/\{[\s\S]*\}/);
+    if (m) jsonText = m[0];
+  } catch {}
+  const explain = jsonText ? pureText.replace(jsonText, '').trim() : pureText;
+
+  const statusColor = {
+    '观察':'var(--text-sec)','BUY候选':'var(--down)','HOLD':'var(--blue)',
+    'REDUCE':'var(--orange)','EXIT':'var(--red)','NO DATA':'var(--red)'
+  }[p.建议状态] || 'var(--text)';
+
+  const missing = (p.数据不足项 && (Array.isArray(p.数据不足项)?p.数据不足项:String(p.数据不足项))) || [];
+  const missingList = Array.isArray(missing) ? missing : [missing];
+
+  box.innerHTML = `
+    ${explain ? `<div class="ai-explain">${escapeHtml(explain).replace(/\n/g,'<br>')}</div>` : ''}
+    <div class="ai-structured">
+      <div class="ai-struct-title">结构化输出</div>
+      <div class="ai-kv-row"><span class="ai-kv-k">判断类型</span><span class="ai-kv-v">${p.判断类型||'--'}</span></div>
+      <div class="ai-kv-row"><span class="ai-kv-k">市场环境</span><span class="ai-kv-v">${p.市场环境||'--'}</span></div>
+      <div class="ai-kv-row"><span class="ai-kv-k">情绪周期</span><span class="ai-kv-v">${p.情绪周期||'--'}</span></div>
+      <div class="ai-kv-row"><span class="ai-kv-k">情绪灯号</span><span class="ai-kv-v">${p.情绪灯号||'--'}</span></div>
+      <div class="ai-kv-row"><span class="ai-kv-k">建议状态</span><span class="ai-kv-v" style="color:${statusColor};font-weight:600">${p.建议状态||'--'}</span></div>
+      <div class="ai-kv-row ai-kv-block"><span class="ai-kv-k">核心逻辑</span><span class="ai-kv-v">${escapeHtml(p.核心逻辑||'--')}</span></div>
+      <div class="ai-kv-row ai-kv-block"><span class="ai-kv-k">风险提示</span><span class="ai-kv-v" style="color:var(--orange)">${escapeHtml(p.风险提示||'--')}</span></div>
+      <div class="ai-kv-row ai-kv-block">
+        <span class="ai-kv-k">数据不足项</span>
+        <span class="ai-kv-v">
+          ${missingList.length && missingList[0] && missingList[0]!=='无'
+            ? `<span style="color:var(--yellow)">${missingList.map(escapeHtml).join('、')}</span>`
+            : '<span style="color:var(--down)">无</span>'}
+        </span>
+      </div>
+      <div class="ai-kv-row"><span class="ai-kv-k">是否需要人工确认</span>
+        <span class="ai-kv-v" style="color:${p.是否需要人工确认==='是'?'var(--yellow)':'var(--down)'}">${p.是否需要人工确认||'--'}</span>
+      </div>
+    </div>
+    <details class="ai-raw">
+      <summary>查看原始 JSON 响应</summary>
+      <pre>${escapeHtml(jsonText || raw)}</pre>
+    </details>
+    ${result.model ? `<div class="ai-meta">模型：${result.model} · ${result.tokens?result.tokens+' tokens':''} · ${new Date(result.created_at).toLocaleString('zh-CN')}</div>` : ''}
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadAIHistory() {
+  const box = $('#aiHistoryBox');
+  if (!box) return;
+  try {
+    const res = await fetch('/api/ai/history?limit=5').then(r=>r.json());
+    if (!res.success || !res.data?.length) { box.innerHTML=''; return; }
+    const items = res.data.map(h=>{
+      let p = {};
+      try { p = typeof h.result==='string' ? JSON.parse(h.result) : (h.result||{}); } catch {}
+      const sceneName = {market:'市场综合',stock:'个股分析',review:'交易复盘'}[h.analysis_type] || h.analysis_type;
+      const statusColor = {
+        '观察':'var(--text-sec)','BUY候选':'var(--down)','HOLD':'var(--blue)',
+        'REDUCE':'var(--orange)','EXIT':'var(--red)','NO DATA':'var(--red)'
+      }[p.建议状态] || 'var(--text)';
+      return `
+        <div class="ai-history-item">
+          <div class="ai-hi-head">
+            <span class="ai-hi-scene">${sceneName}${h.stock_code?' · '+h.stock_code:''}</span>
+            <span class="ai-hi-time">${new Date(h.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+          </div>
+          <div class="ai-hi-row"><span>状态</span><b style="color:${statusColor}">${p.建议状态||'--'}</b></div>
+          <div class="ai-hi-row"><span>核心逻辑</span><span>${escapeHtml((p.核心逻辑||'').slice(0,80))}${(p.核心逻辑||'').length>80?'...':''}</span></div>
+        </div>`;
+    }).join('');
+    box.innerHTML = `<div class="card" style="padding:12px 14px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">📜 最近分析记录</div>${items}</div>`;
+  } catch {}
+}
+
 
 // ====== 股票代码/名称自动补全 ======
 let acCache = new Map();
