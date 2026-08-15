@@ -576,6 +576,11 @@ function renderTab(tab) {
   else if (tab==='stats') c.innerHTML = renderStats();
   if (tab==='ai') loadAIHistory();
   if (tab==='stats') loadStats();
+  if (tab==='input') {
+    bindAutoComplete();
+    syncInputTabState();
+    loadSectorList();
+  }
   bindTabEvents(tab);
 }
 
@@ -943,10 +948,52 @@ async function fetchMarketFromEM() {
   }
 }
 
-function toggleManualMode() {
-  state.manualMode = !state.manualMode;
+function toggleManualMode(checked) {
+  // 支持 checkbox onchange 传入布尔，也支持无参调用时反转
+  if (typeof checked === 'boolean') state.manualMode = checked;
+  else state.manualMode = !state.manualMode;
   if (state.manualMode) state.marketSource = null;
-  switchTab('input');
+  // 每次都从 DOM 重新查询（Tab 切换后 DOM 已被重建）
+  const ids = ['f_up','f_down','f_lu','f_ld','f_bc','f_cb','f_to'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (state.manualMode) el.removeAttribute('readonly');
+    else el.setAttribute('readonly', 'readonly');
+    el.classList.toggle('is-auto', !state.manualMode);
+  });
+  // 炸板率始终只读
+  const br = document.getElementById('f_br');
+  if (br) br.setAttribute('readonly', 'readonly');
+  document.querySelectorAll('.lock-icon').forEach(ic => ic.textContent = state.manualMode ? '✏️' : '🔒');
+  const cb = document.getElementById('manual-mode');
+  if (cb) cb.checked = state.manualMode;
+  // 更新顶部提示条
+  const tip = document.getElementById('manual-tip-text');
+  if (tip) tip.textContent = state.manualMode ? '已切换手动修正模式，请谨慎填写数据' : '已锁定，点右上角开关可解锁手动修正';
+}
+
+// 在 Tab 切换到数据 Tab 后，恢复手动模式的 DOM 状态
+function syncInputTabState() {
+  // 应用锁定/解锁状态（无论来源，都按当前 state 强制刷一遍 DOM）
+  const ids = ['f_up','f_down','f_lu','f_ld','f_bc','f_cb','f_to'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (state.manualMode) el.removeAttribute('readonly');
+    else el.setAttribute('readonly','readonly');
+    el.classList.toggle('is-auto', !state.manualMode);
+  });
+  const br = document.getElementById('f_br');
+  if (br) br.setAttribute('readonly','readonly');
+  document.querySelectorAll('.lock-icon').forEach(ic => ic.textContent = state.manualMode ? '✏️' : '🔒');
+  const cb = document.getElementById('manual-mode');
+  if (cb) cb.checked = state.manualMode;
+  const tip = document.getElementById('manual-tip-text');
+  if (tip) tip.textContent = state.manualMode ? '已切换手动修正模式，请谨慎填写数据' : '已锁定，点右上角开关可解锁手动修正';
+  // 恢复板块下拉选中（注意 id 是 t_sector，不是 sector-select）
+  const sel = document.getElementById('t_sector');
+  if (sel && state.sectorCode) sel.value = state.sectorCode;
 }
 
 function recalcBrokenRate() {
@@ -957,34 +1004,48 @@ function recalcBrokenRate() {
 }
 
 async function loadSectorList() {
-  const sel = $('#sector-select');
-  if (!sel || sel.options.length > 1) return;
+  const sel = $('#t_sector');
+  if (!sel) return;
+  if (sel.dataset.loading === '1') return;
+  // 已经加载过真实数据（>=2 项）就不重复拉
+  if (sel.options.length > 1 && !sel.dataset.failed) return;
+  sel.dataset.loading = '1';
+  if (sel.dataset.failed === '1') {
+    sel.innerHTML = '<option value="">加载中...</option>';
+    delete sel.dataset.failed;
+  }
   try {
     const r = await fetch('/api/sector/list');
     const j = await r.json();
     if (!j.success) throw new Error(j.error || '加载失败');
-    j.data.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.code; opt.textContent = s.name;
-      sel.appendChild(opt);
-    });
+    state.sectorList = j.data;
+    sel.innerHTML = '<option value="">— 请选择主线板块 —</option>' +
+      j.data.map(s => `<option value="${s.board_code}">${s.board_name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('');
     sel.disabled = false;
+    delete sel.dataset.loading;
   } catch(e) {
-    if (sel) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '板块列表加载失败';
-      sel.appendChild(opt);
-      sel.disabled = true;
-    }
+    sel.innerHTML = '<option value="">⚠ 板块列表加载失败，点此重试</option>';
+    sel.disabled = false;
+    sel.dataset.failed = '1';
+    delete sel.dataset.loading;
+    sel.onclick = () => { if (sel.dataset.failed === '1') { sel.onclick = null; loadSectorList(); } };
   }
 }
 
-async function fetchSectorScore() {
-  const code = $('#sector-select')?.value;
-  const name = $('#sector-select')?.selectedOptions?.[0]?.textContent || '';
+async function onSectorChange(code) {
+  if (!code) return;
+  await fetchSectorScore(code);
+}
+
+async function fetchSectorScore(code) {
+  const sel = $('#t_sector');
+  code = code || sel?.value;
   if (!code) return showToast('请先选择主线板块', 'error');
+  const name = sel?.selectedOptions?.[0]?.textContent?.replace(/\s*\([+-]?[\d.]+%\)$/, '') || '';
   const btn = $('#btn-sector-score');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 计算中...'; }
+  const detail = $('#sector-meta');
+  if (detail) detail.textContent = `正在计算 ${name} 的资金/扩散/龙头评分...`;
   try {
     const r = await fetch('/api/sector/score', {
       method: 'POST',
@@ -994,21 +1055,23 @@ async function fetchSectorScore() {
     const j = await r.json();
     if (!j.success) throw new Error(j.error || '计算失败');
     state.sectorScore = j.data;
-    $('#t_name').value = name;
-    $('#t_cap').value = j.data.capital_score;
-    $('#t_sp').value = j.data.spread_score;
-    $('#t_ld').value = j.data.leader_performance_score;
-    // 持续性 / 认可：先清空，用户可点 AI 建议
-    $('#sector-suggestions').innerHTML = `
-      <div class="sk-line" style="width:90%"></div>
-      <div class="sk-line" style="width:75%"></div>
-    `;
-    showToast(`板块评分已计算：资金${j.data.capital_score}/扩散${j.data.spread_score}/龙头${j.data.leader_performance_score}`, 'success');
-    switchTab('input');
+    const tn = $('#t_name'); if (tn) tn.value = name;
+    const cap = $('#t_cap'); if (cap) cap.value = j.data.capital_score;
+    const sp = $('#t_sp'); if (sp) sp.value = j.data.spread_score;
+    const ld = $('#t_ld'); if (ld) ld.value = j.data.leader_performance_score;
+    const capD = $('#t_cap_detail'); if (capD) capD.textContent = j.data.evidence?.capital || '';
+    const spD = $('#t_sp_detail'); if (spD) spD.textContent = j.data.evidence?.spread || '';
+    const ldD = $('#t_ld_detail'); if (ldD) ldD.textContent = j.data.evidence?.leader || '';
+    if (detail) detail.innerHTML = `已选：<b>${name}</b> · 主力净流入 <b>${j.data.metrics?.main_net_inflow_yi ?? '--'}亿</b> · 板块均涨 <b>${j.data.metrics?.sector_avg_change_pct ?? '--'}%</b>`;
+    // 建议区重置提示
+    const sug = $('#sector-suggestions');
+    if (sug) sug.innerHTML = '<div style="color:var(--text-sub);font-size:11px;padding:6px 0">点"AI建议"生成持续性 / 市场认可度参考分</div>';
+    showToast(`板块评分：资金${j.data.capital_score}/25 扩散${j.data.spread_score}/20 龙头${j.data.leader_performance_score}/15`, 'success');
   } catch(e) {
     showToast('板块评分失败：' + (e.message || ''), 'error');
+    if (detail) detail.textContent = '评分失败，可重试';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔍 计算自动评分'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 重新计算'; }
   }
 }
 
