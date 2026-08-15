@@ -490,7 +490,14 @@ async function loadAll() {
       fetch('/api/sector/list').then(r=>r.json()).catch(()=>({success:false}))
     ]);
     state.market = m.success ? m.data : null;
-    state.account = a.success ? a.data : null;
+    // 账户配置：优先使用 localStorage（用户主动保存），否则显示为空
+    const savedAccount = localStorage.getItem('cp_account');
+    if (savedAccount) {
+      try { state.account = JSON.parse(savedAccount); }
+      catch(e) { state.account = null; }
+    } else {
+      state.account = null;
+    }
     state.trades = t.success ? t.data : [];
     state.theme = th.success ? th.data : null;
     state.sectorList = sl.success ? sl.data?.sectors || [] : [];
@@ -1311,11 +1318,15 @@ async function submitAccount() {
     single_trade_risk_pct: (+$('#a_single').value||0)/100,
     daily_risk_limit_pct: (+$('#a_daily').value||0)/100
   };
+  // 保存到 localStorage（前端显示用）
+  localStorage.setItem('cp_account', JSON.stringify(body));
+  state.account = body;
   try {
     await api('/api/account',{method:'PUT',body:JSON.stringify(body)});
     showToast('账户配置已保存','success');
-    await loadAll();
-  } catch(e){}
+  } catch(e) {
+    showToast('账户配置已保存到本地','success');
+  }
 }
 
 // ====== 清空模块数据 ======
@@ -1323,6 +1334,11 @@ function confirmClear(moduleName, apiPath, method) {
   if (!confirm(`确定要清空「${moduleName}」的所有数据吗？此操作不可撤销。`)) return;
   (async () => {
     try {
+      // 账户配置同时清除 localStorage
+      if (apiPath === '/api/account') {
+        localStorage.removeItem('cp_account');
+        state.account = null;
+      }
       await api(apiPath, { method });
       showToast(`${moduleName}已清空`, 'success');
       await loadAll();
