@@ -489,7 +489,7 @@ async function loadAll() {
     state.account = a.success ? a.data : null;
     state.trades = t.success ? t.data : [];
     state.theme = th.success ? th.data : null;
-    state.sectorList = sl.success ? sl.data?.list || [] : [];
+    state.sectorList = sl.success ? sl.data?.sectors || [] : [];
   } catch(e) {
     console.error(e);
   }
@@ -568,20 +568,30 @@ $$('.tab-btn').forEach(btn=>{
 
 function renderTab(tab) {
   const c = $('#tabContent');
-  if (tab==='dashboard') c.innerHTML = renderDashboard();
-  else if (tab==='input') c.innerHTML = renderInput();
-  else if (tab==='trades') c.innerHTML = renderTrades();
-  else if (tab==='check') c.innerHTML = renderCheck();
-  else if (tab==='ai') c.innerHTML = renderAI();
-  else if (tab==='stats') c.innerHTML = renderStats();
+  try {
+    if (tab==='dashboard') c.innerHTML = renderDashboard();
+    else if (tab==='input') c.innerHTML = renderInput();
+    else if (tab==='trades') c.innerHTML = renderTrades();
+    else if (tab==='check') c.innerHTML = renderCheck();
+    else if (tab==='ai') c.innerHTML = renderAI();
+    else if (tab==='stats') c.innerHTML = renderStats();
+  } catch(e) {
+    console.error('renderTab error:', e, 'tab:', tab);
+    // 兜底：显示错误提示，避免内容"卡死"
+    c.innerHTML = `<div class="card"><div class="card-body" style="color:var(--red);padding:20px;text-align:center">
+      <div style="font-size:24px;margin-bottom:8px">⚠️</div>
+      <div>渲染出错: ${e.message}</div>
+      <div style="font-size:12px;margin-top:8px;color:var(--text-sec)">请截图反馈给开发者</div>
+    </div></div>`;
+  }
   if (tab==='ai') loadAIHistory();
   if (tab==='stats') loadStats();
   if (tab==='input') {
-    bindAutoComplete();
-    syncInputTabState();
-    loadSectorList();
+    try { bindAutoComplete(); } catch(e) { console.error('bindAutoComplete error:', e); }
+    try { syncInputTabState(); } catch(e) { console.error('syncInputTabState error:', e); }
+    try { loadSectorList(); } catch(e) { console.error('loadSectorList error:', e); }
   }
-  bindTabEvents(tab);
+  try { bindTabEvents(tab); } catch(e) { console.error('bindTabEvents error:', e); }
 }
 
 // ====== 驾驶舱 Tab ======
@@ -1082,9 +1092,9 @@ async function loadSectorList() {
     const r = await fetch('/api/sector/list');
     const j = await r.json();
     if (!j.success) throw new Error(j.error || '加载失败');
-    state.sectorList = j.data;
+    state.sectorList = j.data?.sectors || [];
     sel.innerHTML = '<option value="">— 请选择主线板块 —</option>' +
-      j.data.map(s => `<option value="${s.board_code}">${s.board_name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('');
+      (j.data?.sectors || []).map(s => `<option value="${s.board_code}">${s.board_name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('');
     sel.disabled = false;
     delete sel.dataset.loading;
   } catch(e) {
