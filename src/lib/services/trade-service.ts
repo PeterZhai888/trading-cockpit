@@ -263,6 +263,19 @@ export async function updateStopPrice(
 }
 
 /**
+ * 删除交易记录
+ */
+export async function deleteTrade(tradeId: string): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client
+    .from('trade')
+    .delete()
+    .eq('trade_id', tradeId);
+
+  if (error) throw new Error(`删除交易记录失败: ${error.message}`);
+}
+
+/**
  * 获取连续亏损次数
  */
 export async function getConsecutiveLosses(): Promise<number> {

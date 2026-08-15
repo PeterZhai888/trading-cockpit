@@ -1280,7 +1280,7 @@ function renderTrades() {
           <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" data-ac-target="nt_code" data-ac-type="name" data-ac-industry="nt_industry" placeholder="贵州茅台" autocomplete="off"></div>
           <div class="form-field full"><label class="form-label">所属行业</label><input class="form-input readonly" id="nt_industry" readonly placeholder="输入代码后自动带出"></div>
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="nt_buy" type="number" step="0.001"></div>
-          <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" value="100"></div>
+          <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" placeholder="必填"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="nt_stop" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">交易模式</label>
             <select class="form-input" id="nt_mode">
@@ -1336,7 +1336,11 @@ function renderTradeItem(t, isOpen) {
         <button class="btn btn-outline btn-sm" style="flex:1" onclick="showAddPosition('${t.trade_id}')">加仓</button>
         <button class="btn btn-outline btn-sm" style="flex:1" onclick="showReducePosition('${t.trade_id}')">减仓</button>
         <button class="btn btn-danger btn-sm" style="flex:1" onclick="showStopPrice('${t.trade_id}')">改止损</button>
-      </div>` : ''}
+        <button class="btn btn-outline btn-sm" style="flex:0.5;color:var(--red);border-color:var(--red)" onclick="confirmDeleteTrade('${t.trade_id}','${t.stock_name||t.stock_code}')">删除</button>
+      </div>` : `
+      <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
+        <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="confirmDeleteTrade('${t.trade_id}','${t.stock_name||t.stock_code}')">删除</button>
+      </div>`}
     </div>`;
 }
 
@@ -1346,13 +1350,13 @@ async function submitTrade() {
     stock_name: $('#nt_name').value.trim(),
     industry: $('#nt_industry')?.value.trim() || undefined,
     buy_price: +$('#nt_buy').value,
-    position: +$('#nt_pos').value||100,
+    position: +$('#nt_pos').value,
     stop_price: +$('#nt_stop').value,
     trade_mode: $('#nt_mode').value,
     buy_reason: $('#nt_reason').value.trim()
   };
-  if (!body.stock_code || !body.buy_price || !body.stop_price) {
-    return showToast('代码/买入价/止损价必填','error');
+  if (!body.stock_code || !body.buy_price || !body.stop_price || !body.position) {
+    return showToast('代码/买入价/止损价/持仓数必填','error');
   }
   try {
     await api('/api/trades',{method:'POST',body:JSON.stringify(body)});
@@ -1430,6 +1434,27 @@ async function doStopPrice(id) {
     showToast('止损价已更新','success');
     closeModal(); await loadAll(); renderTab('trades');
   } catch(e){}
+}
+
+function confirmDeleteTrade(id, name) {
+  showModal(`
+    <div class="modal-title" style="color:var(--red)">⚠️ 确认删除</div>
+    <p style="text-align:center;color:var(--text-main);margin:16px 0;font-size:14px;line-height:1.6">
+      确定要删除 <strong>${name}</strong> 的交易记录吗？<br>
+      <span style="color:var(--text-sec);font-size:12px">此操作不可撤销</span>
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" style="flex:1" onclick="doDeleteTrade('${id}')">确认删除</button>
+    </div>`);
+}
+
+async function doDeleteTrade(id) {
+  try {
+    await api('/api/trades/' + id, { method: 'DELETE' });
+    showToast('交易记录已删除', 'success');
+    closeModal(); await loadAll(); renderTab('trades');
+  } catch(e) {}
 }
 
 // ====== 风险检查 Tab ======
