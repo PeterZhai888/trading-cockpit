@@ -103,22 +103,31 @@ export interface StockSearchResult {
 }
 
 /**
- * 搜索股票：关键字可以是代码（前缀匹配）或名称（模糊匹配）
+ * 搜索股票：优先通过东方财富实时搜索，失败后降级到本地数据库
  */
 export async function searchStocks(
   keyword: string
 ): Promise<StockSearchResult[]> {
   const kw = (keyword || "").trim();
   if (!kw) return [];
+
+  // 先尝试东方财富实时搜索（覆盖全市场）
+  try {
+    const remote = await searchStockFromEastMoney(kw);
+    if (remote.length > 0) return remote;
+  } catch {
+    // 远程搜索失败，降级到本地
+  }
+
+  // 本地兜底
   await ensureSeed();
   const supabase = getSupabaseClient();
-
   const isCode = /^\d+$/.test(kw);
   let query = supabase
     .from("stock")
     .select("code, name, market, industry")
     .eq("status", "normal")
-    .limit(15);
+    .limit(50);
 
   if (isCode) {
     query = query.like("code", `${kw}%`);
@@ -127,10 +136,51 @@ export async function searchStocks(
   }
   const { data, error } = await query.order("code", { ascending: true });
   if (error) {
-    console.error("searchStocks error:", error);
+    console.error("searchStocks fallback error:", error);
     return [];
   }
   return (data || []) as unknown as StockSearchResult[];
+}
+
+/** 东方财富实时股票搜索 */
+async function searchStockFromEastMoney(
+  keyword: string
+): Promise<StockSearchResult[]> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    const r = await fetch(
+      `https://searchadapter.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=20`,
+      { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    clearTimeout(t);
+    if (!r.ok) return [];
+
+    const j = (await r.json()) as {
+      QuotationCodeTable?: {
+        Data?: Array<{
+          Code?: string;
+          Name?: string;
+          MarketType?: string;
+          QuoteID?: string;
+        }>;
+      };
+    };
+    const data = j?.QuotationCodeTable?.Data;
+    if (!data || data.length === 0) return [];
+
+    return data
+      .filter((d) => d.Code && d.Name)
+      .map((d) => ({
+        code: d.Code!,
+        name: d.Name!,
+        market: d.MarketType === "1" ? "SH" : "SZ",
+        industry: null,
+      }));
+  } catch {
+    clearTimeout(t);
+    return [];
+  }
 }
 
 /**
