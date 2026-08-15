@@ -1,6 +1,5 @@
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import type { MarketEnvLevel, EmotionLight, FinalLevel, EmotionResult } from '@/lib/engine/types';
-import type { MarketRawData } from '@/lib/engine/market-env';
+import type { MarketEnvLevel, EmotionLight, FinalLevel, MarketRawData, EmotionResult } from '@/lib/engine/types';
 import { calculateMarketEnvironment } from '@/lib/engine/market-env';
 import { calculateEmotion } from '@/lib/engine/emotion';
 import { reconcileLevel, calculatePreviewLevel } from '@/lib/engine/state-reconcile';
@@ -48,7 +47,7 @@ export async function saveMarketRawData(
   // 计算市场环境
   const envResult = calculateMarketEnvironment(rawData);
   // 计算情绪
-  const emotionResult = calculateEmotion(rawData, envResult.environment);
+  const emotionResult: EmotionResult = calculateEmotion(rawData, confirmedLight ?? null);
   // 状态调和
   const reconcile = reconcileLevel(envResult.environment, emotionResult.light_confirmed);
 

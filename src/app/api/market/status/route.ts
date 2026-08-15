@@ -4,8 +4,7 @@ import {
   saveMarketRawData,
   confirmEmotionLight,
 } from '@/lib/services/market-service';
-import type { EmotionLight } from '@/lib/engine/types';
-import type { MarketRawData } from '@/lib/engine/market-env';
+import type { MarketRawData, EmotionLight } from '@/lib/engine/types';
 
 export const runtime = 'nodejs';
 

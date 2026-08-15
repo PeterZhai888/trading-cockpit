@@ -8,15 +8,14 @@ export type MarketEnvLevel = 'A' | 'B' | 'C';
 /** 情绪灯号 */
 export type EmotionLight = 'green' | 'yellow' | 'orange' | 'red';
 
-/** 情绪周期六阶段（v0.6 用户定稿：冰点/修复/启动/分歧/高潮/退潮） */
+/** 情绪周期六阶段 */
 export type EmotionCycle =
-  | '冰点'
-  | '修复'
   | '启动'
-  | '分歧'
+  | '发酵'
   | '高潮'
+  | '分歧'
   | '退潮'
-  | '观察';
+  | '冰点';
 
 /** 最终交易等级 */
 export type FinalLevel = 'L0' | 'L1' | 'L2' | 'L3';
@@ -55,7 +54,18 @@ export type DataState = 'valid' | 'expired' | 'missing' | 'invalid';
 export type DataSource = '行情接口' | 'AI分析' | '人工输入';
 
 // ============ 数据结构 ============
-// MarketRawData 定义在 ./market-env.ts，需要时直接从那里导入
+
+/** 市场原始数据 */
+export interface MarketRawData {
+  up_count: number;
+  down_count: number;
+  limit_up_count: number;
+  limit_down_count: number;
+  broken_limit_count: number;
+  broken_limit_rate: number;
+  max_consecutive_boards: number;
+  total_turnover: number;
+}
 
 /** 市场环境计算结果 */
 export interface MarketEnvResult {
@@ -69,12 +79,6 @@ export interface EmotionResult {
   cycle: EmotionCycle;
   light_suggested: EmotionLight;
   light_confirmed: EmotionLight | null;
-  /** 六阶段判定理由（便于审计和UI展示） */
-  reason: string;
-  /** 各阶段命中票数（调试/UI可展示） */
-  votes: Record<EmotionCycle, number>;
-  /** 生效的阈值配置（便于后续调整和UI展示当前参数） */
-  thresholds: Record<string, number>;
 }
 
 /** 主线评分明细 */

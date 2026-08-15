@@ -1,21 +1,8 @@
 import type {
+  MarketRawData,
   MarketEnvResult,
   MarketEnvLevel,
 } from './types';
-
-/**
- * 市场原始数据输入。
- */
-export interface MarketRawData {
-  up_count: number;
-  down_count: number;
-  limit_up_count: number;
-  limit_down_count: number;
-  broken_limit_count: number;
-  broken_limit_rate: number;
-  max_consecutive_boards: number;
-  total_turnover: number;
-}
 
 /**
  * 市场环境计算模块

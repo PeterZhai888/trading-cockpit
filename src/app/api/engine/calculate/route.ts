@@ -9,10 +9,10 @@ import { filterStock } from '@/lib/engine/stock-filter';
 import { checkTradingRules } from '@/lib/engine/trading-validator';
 import { calculateDataQuality } from '@/lib/engine/data-manager';
 import type {
+  MarketRawData,
   EmotionLight,
   TradeMode,
 } from '@/lib/engine/types';
-import type { MarketRawData } from '@/lib/engine/market-env';
 
 export const runtime = 'nodejs';
 
@@ -66,9 +66,8 @@ export async function POST(request: Request) {
 
       case 'emotion': {
         const rawData: MarketRawData = body.raw_data;
-        // 先算环境（C级直接红灯，A级绿灯），再算情绪
-        const envResult = calculateMarketEnvironment(rawData);
-        const result = calculateEmotion(rawData, envResult.environment);
+        const confirmedLight = body.confirmed_light as EmotionLight | null;
+        const result = calculateEmotion(rawData, confirmedLight);
         return NextResponse.json({ success: true, data: result });
       }
 
