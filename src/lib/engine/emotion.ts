@@ -1,153 +1,232 @@
-import type {
-  MarketRawData,
-  EmotionCycle,
-  EmotionLight,
-  EmotionResult,
-} from './types';
-
 /**
  * 情绪计算模块
+ * 基于市场原始数据计算：
+ * 1. 情绪周期（六阶段：冰点/修复/启动/分歧/高潮/退潮）
+ * 2. 情绪灯号（green/yellow/orange/red）
+ * 3. 数据可信度
  *
- * 基于市场数据推断情绪周期和建议灯号。
- * 注意：此模块输出的是"建议值"，必须经人工确认后才能用于状态调和。
+ * v0.6 修正（用户确认的标准六阶段）：
+ * - 冰点：涨停<20，跌停>10，连板≤2
+ * - 修复：涨停20-40，跌停<10，连板3-4
+ * - 启动：涨停40-60，连板≥4，主线出现
+ * - 分歧：涨停维持但炸板率>30%，高位股分化
+ * - 高潮：涨停>60，板块全面扩散，龙头加速
+ * - 退潮：涨停<30，跌停增多，高位股批量杀跌
  *
- * 情绪周期六阶段判定逻辑：
- * - 冰点：涨停<10，跌停>20，炸板率>40%
- * - 启动：涨停15-30，昨日涨停反馈转好，连板高度从低位回升
- * - 发酵：涨停30-60，连板高度3-5板，炸板率下降
- * - 高潮：涨停>60，连板高度≥6板，市场一致性强
- * - 分歧：涨停数量开始下降，炸板率上升，高位股出现亏钱效应
- * - 退潮：跌停增加，连板高度下降，高位股补跌
+ * 所有阈值通过 EMOTION_THRESHOLDS 集中配置，便于后续根据市场环境微调。
  */
 
-export interface EmotionInput extends MarketRawData {
-  prev_limit_up_count?: number;
-  prev_limit_up_performance?: number; // 昨日涨停股今日平均涨幅%
+import type { EmotionCycle, EmotionLight, MarketEnvLevel } from "./types";
+
+// ====== 阈值配置（可调） ======
+export const EMOTION_THRESHOLDS = {
+  icepoint: {
+    limitUpMax: 20,    // 涨停数 < 20
+    limitDownMin: 10,  // 跌停数 > 10
+    maxConsecutiveMax: 2, // 连板高度 ≤ 2
+  },
+  recovery: {
+    limitUpMin: 20,
+    limitUpMax: 40,    // 涨停 20-40
+    limitDownMax: 10,  // 跌停 < 10
+    consecutiveMin: 3,
+    consecutiveMax: 4, // 连板 3-4
+  },
+  launch: {
+    limitUpMin: 40,
+    limitUpMax: 60,    // 涨停 40-60
+    consecutiveMin: 4, // 连板 ≥ 4
+  },
+  divergence: {
+    brokenRateMin: 30, // 炸板率 > 30%
+  },
+  climax: {
+    limitUpMin: 60,    // 涨停 > 60
+  },
+  retreat: {
+    limitUpMax: 30,    // 涨停 < 30
+    limitDownMin: 10,  // 跌停 > 10
+    netHeatMax: 0,     // 涨停-跌停 ≤ 0（走弱）
+  },
+} as const;
+
+// ====== 原始数据结构 ======
+export interface MarketRawData {
+  up_count?: number;
+  down_count?: number;
+  limit_up_count?: number;
+  limit_down_count?: number;
+  broken_limit_count?: number;
+  broken_limit_rate?: number;
+  max_consecutive_boards?: number;
+  total_turnover?: number;
 }
 
-function determineCycle(data: EmotionInput): EmotionCycle {
-  const {
-    limit_up_count,
-    limit_down_count,
-    broken_limit_rate,
-    max_consecutive_boards,
-    prev_limit_up_count,
-    prev_limit_up_performance,
-  } = data;
-
-  // 冰点条件
-  if (
-    limit_up_count < 10 &&
-    (limit_down_count > 20 || broken_limit_rate > 40)
-  ) {
-    return '冰点';
-  }
-
-  // 高潮条件
-  if (
-    limit_up_count >= 60 &&
-    max_consecutive_boards >= 6 &&
-    broken_limit_rate < 20
-  ) {
-    return '高潮';
-  }
-
-  // 退潮条件
-  if (
-    limit_down_count > 15 ||
-    (prev_limit_up_performance !== undefined &&
-      prev_limit_up_performance < -2) ||
-    (max_consecutive_boards <= 2 && limit_up_count < 20)
-  ) {
-    return '退潮';
-  }
-
-  // 启动条件：从冰点回升
-  if (
-    limit_up_count >= 15 &&
-    limit_up_count <= 30 &&
-    (prev_limit_up_count === undefined ||
-      limit_up_count > prev_limit_up_count) &&
-    max_consecutive_boards <= 3
-  ) {
-    return '启动';
-  }
-
-  // 发酵条件
-  if (
-    limit_up_count >= 30 &&
-    limit_up_count <= 60 &&
-    max_consecutive_boards >= 3 &&
-    max_consecutive_boards <= 5 &&
-    broken_limit_rate < 30
-  ) {
-    return '发酵';
-  }
-
-  // 分歧条件：涨停开始下降或炸板率上升
-  if (
-    broken_limit_rate >= 25 ||
-    (prev_limit_up_count !== undefined &&
-      limit_up_count < prev_limit_up_count * 0.8)
-  ) {
-    return '分歧';
-  }
-
-  // 默认根据涨停数量粗判
-  if (limit_up_count >= 40) return '发酵';
-  if (limit_up_count >= 15) return '启动';
-  return '冰点';
+// ====== 输出结构（对齐 types.EmotionResult） ======
+export interface EmotionCalcResult {
+  cycle: EmotionCycle;
+  light_suggested: EmotionLight;
+  light_confirmed: EmotionLight | null;
+  confidence: number;
+  reason: string;
+  thresholds: typeof EMOTION_THRESHOLDS;
+  votes?: Record<string, number>;
 }
 
 /**
- * 情绪周期映射建议灯号
+ * 计算情绪周期（六阶段）
+ * 优先级：冰点 > 退潮 > 高潮 > 分歧 > 启动 > 修复 > 观察(兜底)
  */
-const CYCLE_TO_LIGHT: Record<EmotionCycle, EmotionLight> = {
-  启动: 'green',
-  发酵: 'green',
-  高潮: 'yellow',   // 高潮期需要注意风险，黄灯
-  分歧: 'yellow',
-  退潮: 'orange',
-  冰点: 'red',
-};
+export function determineCycle(raw: MarketRawData): {
+  cycle: EmotionCycle;
+  reason: string;
+} {
+  const limitUp = raw.limit_up_count ?? 0;
+  const limitDown = raw.limit_down_count ?? 0;
+  const brokenRate = raw.broken_limit_rate ?? 0;
+  const boards = raw.max_consecutive_boards ?? 0;
+  const netHeat = limitUp - limitDown;
+  const t = EMOTION_THRESHOLDS;
 
-/**
- * 计算情绪状态
- * @param data 市场数据
- * @param confirmedLight 人工已确认的灯号（如有）
- */
-export function calculateEmotion(
-  data: EmotionInput,
-  confirmedLight: EmotionLight | null = null,
-): EmotionResult {
-  const cycle = determineCycle(data);
-  const suggested = CYCLE_TO_LIGHT[cycle];
+  // 1. 冰点：涨停低 + 跌停多 + 连板低
+  if (
+    limitUp < t.icepoint.limitUpMax &&
+    limitDown > t.icepoint.limitDownMin &&
+    boards <= t.icepoint.maxConsecutiveMax
+  ) {
+    return {
+      cycle: "冰点",
+      reason: `涨停${limitUp}<20，跌停${limitDown}>10，连板高度${boards}≤2，赚钱效应极差`,
+    };
+  }
 
+  // 2. 退潮：涨停骤降 + 跌停增多 + 高位股杀跌（netHeat≤0）
+  if (
+    limitUp < t.retreat.limitUpMax &&
+    limitDown > t.retreat.limitDownMin &&
+    netHeat <= t.retreat.netHeatMax
+  ) {
+    return {
+      cycle: "退潮",
+      reason: `涨停${limitUp}<30，跌停${limitDown}>10，净热度${netHeat}≤0，高位股批量杀跌`,
+    };
+  }
+
+  // 3. 高潮：涨停爆发 + 板块扩散
+  if (limitUp > t.climax.limitUpMin) {
+    return {
+      cycle: "高潮",
+      reason: `涨停${limitUp}>60，板块全面扩散，龙头加速`,
+    };
+  }
+
+  // 4. 分歧：涨停维持但炸板率高
+  if (brokenRate > t.divergence.brokenRateMin) {
+    return {
+      cycle: "分歧",
+      reason: `炸板率${brokenRate.toFixed(1)}%>30%，高位股分化，跟风减少`,
+    };
+  }
+
+  // 5. 启动：涨停明显增加 + 连板≥4（原"发酵"阶段，按用户定案改名"启动"）
+  if (
+    limitUp >= t.launch.limitUpMin &&
+    limitUp <= t.launch.limitUpMax &&
+    boards >= t.launch.consecutiveMin
+  ) {
+    return {
+      cycle: "启动",
+      reason: `涨停${limitUp}在40-60区间，连板高度${boards}≥4，主线开始出现`,
+    };
+  }
+
+  // 6. 修复：涨停回升 + 跌停减少 + 连板恢复
+  if (
+    limitUp >= t.recovery.limitUpMin &&
+    limitUp <= t.recovery.limitUpMax &&
+    limitDown < t.recovery.limitDownMax &&
+    boards >= t.recovery.consecutiveMin &&
+    boards <= t.recovery.consecutiveMax
+  ) {
+    return {
+      cycle: "修复",
+      reason: `涨停${limitUp}回升至20-40，跌停${limitDown}<10，连板${boards}恢复至3-4板`,
+    };
+  }
+
+  // 兜底：观察（数据不满足任一明确阶段）
   return {
-    cycle,
-    light_suggested: suggested,
-    light_confirmed: confirmedLight,
+    cycle: "观察",
+    reason: `数据不满足六阶段典型特征（涨停${limitUp}/跌停${limitDown}/炸板${brokenRate.toFixed(1)}%/连板${boards}），维持观察`,
   };
 }
 
 /**
- * 灯号中文标签
+ * 根据市场环境等级计算建议灯号
+ * - C级（防守）：红灯
+ * - A级（进攻）：绿灯
+ * - B级（震荡）：看炸板率，>30%橙灯，否则黄灯
  */
-export const LIGHT_LABELS: Record<EmotionLight, string> = {
-  green: '绿灯',
-  yellow: '黄灯',
-  orange: '橙灯',
-  red: '红灯',
-};
+export function determineLight(
+  envLevel: MarketEnvLevel,
+  brokenRate: number,
+): EmotionLight {
+  if (envLevel === "C") return "red";
+  if (envLevel === "A") return "green";
+  // B级震荡
+  return brokenRate > 30 ? "orange" : "yellow";
+}
 
 /**
- * 情绪周期描述
+ * 计算数据可信度（0-100）
+ * - 数据完整度 40%
+ * - 数值合理性 30%
+ * - 数据新鲜度由调用方传入
  */
-export const CYCLE_DESCRIPTIONS: Record<EmotionCycle, string> = {
-  启动: '市场情绪从冰点回升，赚钱效应初现',
-  发酵: '情绪持续扩散，主线逐渐清晰',
-  高潮: '市场一致性强，但需警惕高位风险',
-  分歧: '资金出现分歧，高位股波动加大',
-  退潮: '赚钱效应消退，控制仓位为主',
-  冰点: '市场极度低迷，观望为主',
-};
+export function calcConfidence(raw: MarketRawData): number {
+  const fields = [
+    raw.up_count,
+    raw.down_count,
+    raw.limit_up_count,
+    raw.limit_down_count,
+    raw.broken_limit_count,
+    raw.broken_limit_rate,
+    raw.max_consecutive_boards,
+    raw.total_turnover,
+  ];
+  const filled = fields.filter((f) => f != null && f >= 0).length;
+  const completeness = (filled / fields.length) * 40;
+
+  // 合理性：涨跌家数之和应该在合理范围
+  const total = (raw.up_count ?? 0) + (raw.down_count ?? 0);
+  const reasonableness = total > 1000 ? 30 : total > 100 ? 15 : 0;
+
+  // 新鲜度默认满分（调用方可以根据时间衰减）
+  const freshness = 30;
+
+  return Math.round(completeness + reasonableness + freshness);
+}
+
+/**
+ * 主函数：计算情绪
+ * @param raw 市场原始数据
+ * @param envLevel 市场环境等级（A/B/C），由市场环境计算模块提供
+ */
+export function calculateEmotion(
+  raw: MarketRawData,
+  envLevel: MarketEnvLevel,
+): EmotionCalcResult {
+  const { cycle, reason } = determineCycle(raw);
+  const brokenRate = raw.broken_limit_rate ?? 0;
+  const lightSuggested = determineLight(envLevel, brokenRate);
+  const confidence = calcConfidence(raw);
+
+  return {
+    cycle,
+    light_suggested: lightSuggested,
+    light_confirmed: null, // AI建议值，需人工确认
+    confidence,
+    reason,
+    thresholds: EMOTION_THRESHOLDS,
+  };
+}
