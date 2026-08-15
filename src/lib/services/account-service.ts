@@ -32,7 +32,7 @@ function mapConfig(row: Record<string, unknown>): AccountConfig {
 }
 
 /**
- * 获取账户配置（不存在则创建默认配置）
+ * 获取账户配置（不存在则创建默认配置，is_initialized=false）
  */
 export async function getAccountConfig(): Promise<AccountConfig> {
   const client = getSupabaseClient();
@@ -46,10 +46,10 @@ export async function getAccountConfig(): Promise<AccountConfig> {
   if (error) throw new Error(`查询账户配置失败: ${error.message}`);
 
   if (!data) {
-    // 创建默认配置
+    // 创建默认配置，标记为未初始化
     const { data: inserted, error: insertErr } = await client
       .from('account_config')
-      .insert({ id: 1, ...DEFAULT_CONFIG })
+      .insert({ id: 1, ...DEFAULT_CONFIG, is_initialized: false })
       .select()
       .single();
 
@@ -61,7 +61,7 @@ export async function getAccountConfig(): Promise<AccountConfig> {
 }
 
 /**
- * 获取账户配置，不存在时返回 null（不自动创建）
+ * 获取账户配置，未初始化或不存在时返回 null
  * 用于前端展示，区分"从未保存"和"已保存默认值"
  */
 export async function getAccountConfigOrNull(): Promise<AccountConfig | null> {
@@ -73,7 +73,10 @@ export async function getAccountConfigOrNull(): Promise<AccountConfig | null> {
     .maybeSingle();
 
   if (error) throw new Error(`查询账户配置失败: ${error.message}`);
-  return data ? mapConfig(data as Record<string, unknown>) : null;
+  if (!data) return null;
+  // 未初始化（引擎自动创建的默认值）视为空
+  if (!data.is_initialized) return null;
+  return mapConfig(data as Record<string, unknown>);
 }
 
 /**
@@ -84,17 +87,34 @@ export async function updateAccountConfig(
 ): Promise<AccountConfig> {
   const client = getSupabaseClient();
 
-  // 使用 upsert 确保行不存在时自动创建
-  const { data, error } = await client
+  // 先尝试更新
+  const { error: updateErr } = await client
     .from('account_config')
-    .upsert({ id: 1, ...updates, updated_at: new Date().toISOString() }, {
-      onConflict: 'id',
-    })
+    .update({ ...updates, is_initialized: true, updated_at: new Date().toISOString() })
+    .eq('id', 1);
+
+  if (updateErr) throw new Error(`更新账户配置失败: ${updateErr.message}`);
+
+  // 查询更新结果
+  const { data, error: selectErr } = await client
+    .from('account_config')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle();
+
+  if (selectErr) throw new Error(`查询账户配置失败: ${selectErr.message}`);
+
+  if (data) return mapConfig(data as Record<string, unknown>);
+
+  // 不存在则创建新行
+  const { data: inserted, error: insertErr } = await client
+    .from('account_config')
+    .insert({ id: 1, ...updates, is_initialized: true })
     .select()
     .single();
 
-  if (error) throw new Error(`更新账户配置失败: ${error.message}`);
-  return mapConfig(data as Record<string, unknown>);
+  if (insertErr) throw new Error(`创建账户配置失败: ${insertErr.message}`);
+  return mapConfig(inserted as Record<string, unknown>);
 }
 
 /**
