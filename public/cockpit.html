@@ -996,6 +996,70 @@ function syncInputTabState() {
   if (sel && state.sectorCode) sel.value = state.sectorCode;
 }
 
+/**
+ * 每次 renderTab 把对应 Tab 的 HTML innerHTML 注入后调用。
+ * 这是修复"切 Tab 后按钮无反应 / 自动完成失效 / 板块加载失效"的核心：
+ * 之前只在 init 时绑定过一次事件，切走再切回来时 renderInput/renderTrades
+ * 重建了 DOM，监听全丢，表现就是页面像"没切换过去"或"点了没反应"。
+ */
+function bindTabEvents(tab) {
+  if (tab === 'input') {
+    // 手动修正开关
+    const sw = document.getElementById('manual-mode');
+    if (sw) sw.addEventListener('change', e => toggleManualMode(e.target.checked));
+    // 涨停/炸板数联动炸板率
+    ['f_lu','f_bc'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', recalcBrokenRate);
+    });
+    // 一键拉取东财
+    const btnFetch = document.getElementById('btn-fetch-em');
+    if (btnFetch) btnFetch.addEventListener('click', fetchMarketFromEM);
+    // 提交市场数据
+    const btnMarket = document.getElementById('btn-submit-market');
+    if (btnMarket) btnMarket.addEventListener('click', submitMarket);
+    // 板块选择 + 量化评分
+    const sec = document.getElementById('t_sector');
+    if (sec) sec.addEventListener('change', e => onSectorChange(e.target.value));
+    const btnScore = document.getElementById('btn-sector-score');
+    if (btnScore) btnScore.addEventListener('click', () => fetchSectorScore(sec?.value || ''));
+    const btnSuggest = document.getElementById('btn-sector-suggest');
+    if (btnSuggest) btnSuggest.addEventListener('click', suggestSectorScores);
+    const btnTheme = document.getElementById('btn-submit-theme');
+    if (btnTheme) btnTheme.addEventListener('click', submitTheme);
+    // 账户
+    const btnAcc = document.getElementById('btn-submit-account');
+    if (btnAcc) btnAcc.addEventListener('click', submitAccount);
+    // 灯号
+    document.querySelectorAll('[data-light]').forEach(b => {
+      b.addEventListener('click', () => confirmLight(b.dataset.light));
+    });
+    // 自动完成（股票输入、板块搜索等）
+    bindAutoComplete();
+    // 板块列表：切到这个 Tab 时若还没加载过则拉一次
+    if (!sec || sec.options.length <= 1) loadSectorList();
+    // 同步锁定状态
+    syncInputTabState();
+  } else if (tab === 'trades') {
+    bindAutoComplete();
+  } else if (tab === 'check') {
+    bindAutoComplete();
+    const btn = document.getElementById('btn-run-risk');
+    if (btn) btn.addEventListener('click', runRiskCheck);
+  } else if (tab === 'ai') {
+    bindAutoComplete();
+    document.querySelectorAll('[data-scene]').forEach(b => {
+      b.addEventListener('click', () => switchAIScene(b.dataset.scene));
+    });
+    const run = document.getElementById('btn-ai-run');
+    if (run) run.addEventListener('click', runAIAnalysis);
+    const stop = document.getElementById('btn-ai-stop');
+    if (stop) stop.addEventListener('click', stopAIAnalysis);
+  } else if (tab === 'stats') {
+    loadStats();
+  }
+}
+
 function recalcBrokenRate() {
   const lu = +$('#f_lu')?.value || 0;
   const bc = +$('#f_bc')?.value || 0;
@@ -2190,8 +2254,10 @@ function jumpToReview(tradeId) {
 }
 
 // 页面初始化
-loadAll();
+// 先渲染当前 Tab 的 DOM，再绑定自动完成（依赖输入框存在），最后加载数据
+renderTab(state.currentTab);
 bindAutoComplete();
+loadAll();
 // 每30秒刷新一次时间显示
 setInterval(()=>{ const t=$('#statusTime'); if(t){ t.textContent = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } }, 30000);
 </script>
