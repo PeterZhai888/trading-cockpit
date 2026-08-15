@@ -491,6 +491,11 @@ async function loadAll() {
     state.trades = t.success ? t.data : [];
     state.theme = th.success ? th.data : null;
     state.sectorList = sl.success ? sl.data?.sectors || [] : [];
+    // 补全 sector_name（从 sectorList 查找）
+    if (state.theme?.sector_code && !state.theme.sector_name) {
+      const found = state.sectorList.find(s => s.code === state.theme.sector_code);
+      if (found) state.theme.sector_name = found.name;
+    }
   } catch(e) {
     console.error(e);
   }
@@ -690,7 +695,7 @@ function renderDashboard() {
       </div>
       <div class="card-body">
         ${th ? `
-        <div class="data-row"><span class="data-label">主线名称</span><span class="data-value">${th.theme_name}</span></div>
+        <div class="data-row"><span class="data-label">主线名称</span><span class="data-value" style="color:var(--red);font-weight:700">${th.theme_name}</span></div>
         <div style="margin-top:10px">
           ${[
             ['资金强度',th.capital_score,25],
@@ -865,6 +870,8 @@ function renderInput() {
             <div class="ai-suggest-detail" id="t_ld_detail">${state.sectorScore?.details?.leader || ''}</div>
           </div>
         </div>
+        <!-- AI建议展示区 -->
+        <div id="sector-suggestions" style="margin-top:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px;color:var(--text-sub)">点"AI建议"生成持续性 / 市场认可度参考分</div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitTheme()">保存主线评分</button>
       </div>
     </div>
@@ -1130,9 +1137,13 @@ async function fetchSectorScore(code) {
     const j = await r.json();
     if (!j.success) throw new Error(j.error || '计算失败');
     state.sectorScore = j.data;
+    // 清空旧的AI建议缓存
+    state.sectorScore.ai_suggestions = null;
     // 同步预览到驾驶舱
     state.theme = {
       theme_name: name,
+      sector_code: code,
+      sector_name: name,
       score: (j.data.capital_score||0)+(j.data.spread_score||0)+(j.data.leader_performance_score||0),
       capital_score: j.data.capital_score,
       spread_score: j.data.spread_score,
@@ -1157,6 +1168,30 @@ async function fetchSectorScore(code) {
     if (detail) detail.textContent = '评分失败，可重试';
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🔍 重新计算'; }
+  }
+}
+
+// 单个AI建议按钮入口
+async function getAiSuggest(type) {
+  const s = state.sectorScore;
+  if (!s) return showToast('请先选择板块并计算自动评分', 'error');
+  // 如果已有缓存建议，直接填充，不再重复请求
+  if (s.ai_suggestions?.expectation_score != null && s.ai_suggestions?.recognition_score != null) {
+    fillAiSuggestion(type, s.ai_suggestions);
+    return;
+  }
+  await suggestSectorScores();
+  const s2 = state.sectorScore;
+  if (s2?.ai_suggestions) fillAiSuggestion(type, s2.ai_suggestions);
+}
+
+function fillAiSuggestion(type, ai) {
+  if (type === 'expectation' && ai.expectation_score != null) {
+    const el = $('#t_exp');
+    if (el) { el.value = ai.expectation_score; el.dispatchEvent(new Event('input')); showToast('已填入持续性建议分', 'success'); }
+  } else if (type === 'recognition' && ai.recognition_score != null) {
+    const el = $('#t_rec');
+    if (el) { el.value = ai.recognition_score; el.dispatchEvent(new Event('input')); showToast('已填入认可度建议分', 'success'); }
   }
 }
 
@@ -1203,6 +1238,10 @@ async function suggestSectorScores() {
     const rs = Number(parsed.recognition_suggested || 0);
     const csScore = Math.max(0, Math.min(10, cs));
     const rsScore = Math.max(0, Math.min(15, Math.round(rs * 1.5)));
+    // 存储AI建议到 state，供 getAiSuggest 直接调用
+    if (!state.sectorScore.ai_suggestions) state.sectorScore.ai_suggestions = {};
+    state.sectorScore.ai_suggestions.expectation_score = csScore;
+    state.sectorScore.ai_suggestions.recognition_score = rsScore;
     if (box) {
       box.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
@@ -1235,8 +1274,11 @@ function applySuggestion(id, val) {
 async function submitTheme() {
   const name = $('#t_name').value.trim();
   if (!name) return showToast('请选择或输入主线板块','error');
+  const sectorCode = ($('#t_sector')||{}).value||'';
   const body = {
     theme_name: name,
+    sector_code: sectorCode,
+    sector_name: name,
     capital_score: +$('#t_cap').value||0,
     spread_score: +$('#t_sp').value||0,
     policy_score: +$('#t_pol').value||0,

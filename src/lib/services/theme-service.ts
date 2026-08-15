@@ -81,9 +81,7 @@ export async function saveTheme(input: ThemeInput): Promise<ThemeRecord> {
       expectation_score: input.expectation_score ?? 0,
       recognition_score: input.recognition_score ?? 0,
       leader_performance_score: input.leader_performance_score ?? 0,
-      duration_ai_suggestion: input.duration_ai_suggestion ?? null,
-      recognition_ai_suggestion: input.recognition_ai_suggestion ?? null,
-      evidence: input.evidence || null,
+      score_evidence: input.evidence || null,
     })
     .select()
     .single();
