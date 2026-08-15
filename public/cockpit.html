@@ -824,7 +824,7 @@ function renderInput() {
           <label class="form-label">主线板块（申万一级行业） <span class="auto-badge">选择后自动量化</span></label>
           <select class="form-input" id="t_sector" onchange="onSectorChange(this.value)">
             <option value="">-- 请选择板块 --</option>
-            ${(state.sectorList || []).map(s => `<option value="${s.board_code}" ${th?.sector_code === s.board_code ? 'selected' : ''}>${s.board_name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('')}
+            ${(state.sectorList || []).map(s => `<option value="${s.code}" ${th?.sector_code === s.code ? 'selected' : ''}>${s.name}${s.change_pct != null ? ` (${s.change_pct > 0 ? '+' : ''}${s.change_pct}%)` : ''}</option>`).join('')}
           </select>
           <div class="sector-source" id="sector-meta">${th?.sector_code ? `已选板块：${th.sector_name || ''}` : '选择板块后，资金强度/板块扩散/龙头表现自动评分'}</div>
         </div>
@@ -946,7 +946,7 @@ async function fetchMarketFromEM() {
     set('f_cb', d.max_consecutive_boards);
     set('f_to', d.total_amount_yi);
     showToast(`已拉取 ${d.trade_date} 数据：涨停${d.limit_up_count}/炸板${d.broken_limit_count}/炸板率${d.broken_limit_rate}%`, 'success');
-    switchTab('input');
+    renderTab('input');
   } catch(e) {
     showToast('抓取失败：' + (e.message || '请稍后重试或手工录入'), 'error');
     if (icon) icon.textContent = '⟳';
