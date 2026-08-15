@@ -476,7 +476,8 @@ const state = {
   marketSource: null,        // 已成功拉取的市场数据源（持久在 state）
   sectorList: null,          // 申万一级行业列表
   sectorScore: null,         // 当前板块量化评分
-  manualMode: false          // 手动修正模式
+  manualMode: false,          // 手动修正模式
+  riskCheck: null             // 风控模块表单与结果缓存
 };
 
 // ====== 数据加载 ======
@@ -1574,6 +1575,9 @@ async function doDeleteTrade(id) {
 function renderCheck() {
   const acc = state.account;
   const m = state.market;
+  const rc = state.riskCheck;
+  const rcBody = rc?.body||{};
+  const rcResult = rc?.result;
   return `
     <div class="card">
       <div class="card-header"><div class="card-title"><span class="dot"></span>买入前风险检查</div>
@@ -1581,15 +1585,15 @@ function renderCheck() {
       </div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" data-ac-target="rc_name" data-ac-type="code" data-ac-industry="rc_industry" placeholder="600519" autocomplete="off"></div>
-          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" data-ac-target="rc_code" data-ac-type="name" data-ac-industry="rc_industry" placeholder="可选" autocomplete="off"></div>
-          <div class="form-field full"><label class="form-label">所属行业</label><input class="form-input readonly" id="rc_industry" readonly placeholder="输入代码后自动带出"></div>
-          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001"></div>
-          <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001"></div>
-          <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000"></div>
+          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" data-ac-target="rc_name" data-ac-type="code" data-ac-industry="rc_industry" placeholder="600519" autocomplete="off" value="${rcBody.stock_code||''}"></div>
+          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" data-ac-target="rc_code" data-ac-type="name" data-ac-industry="rc_industry" placeholder="可选" autocomplete="off" value="${rcBody.stock_name||''}"></div>
+          <div class="form-field full"><label class="form-label">所属行业</label><input class="form-input readonly" id="rc_industry" readonly placeholder="输入代码后自动带出" value="${rcBody.industry||''}"></div>
+          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001" value="${rcBody.buy_price||''}"></div>
+          <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001" value="${rcBody.stop_price||''}"></div>
+          <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000" value="${rcBody.plan_buy_amount||''}"></div>
         </div>
         <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="runRiskCheck()">执行风险检查</button>
-        <div id="riskResult"></div>
+        <div id="riskResult">${rcResult ? renderRiskResult(rcResult) : ''}</div>
       </div>
     </div>
 
@@ -1621,6 +1625,50 @@ function renderCheck() {
   `;
 }
 
+function renderRiskResult(d) {
+  if (!d) return '';
+  const ar = d.account_risk||{};
+  const pos = d.position||{};
+  const violations = d.violations||[];
+  const triggered = violations.filter(v=>v.triggered);
+  const canPass = !d.blocked;
+  return `
+    <div style="margin-top:14px">
+      <div class="risk-gauge">
+        <div class="risk-circle ${ar.risk_status==='危险'||ar.risk_status==='停止'?'stop':ar.risk_status==='警告'?'danger':ar.risk_status==='注意'?'warn':''}">
+          <div style="text-align:center">
+            <div class="num mono" style="font-size:16px">${pct(ar.account_risk_pct)}</div>
+            <div style="font-size:10px;color:var(--text-sec)">账户风险</div>
+          </div>
+        </div>
+        <div class="risk-info">
+          <div class="risk-status" style="color:${canPass?'var(--green)':'var(--red)'}">${canPass?'✓ 风险检查通过':'✗ 禁止开仓'}</div>
+          <div class="risk-detail">
+            止损幅度 ${pct(ar.stop_loss_pct)} · 预计最大亏损 ¥${yuan(ar.estimated_max_loss,0)}
+            ${ar.t1_adjusted_risk_pct?`<br>T+1隔夜参考：${pct(ar.t1_adjusted_risk_pct)}（仅提示）`:''}
+          </div>
+        </div>
+      </div>
+      <div class="data-row"><span class="data-label">原始仓位建议</span><span class="data-value mono">¥${yuan(pos.raw_max_position,0)}</span></div>
+      <div class="data-row"><span class="data-label">连续亏损调整</span><span class="data-value mono" style="color:${pos.halved_by_losses?'var(--orange)':'var(--text-sec)'}">${pos.halved_by_losses?'×50%':'无调整'}</span></div>
+      <div class="data-row"><span class="data-label">等级系数调整后</span><span class="data-value mono">¥${yuan(pos.final_max_position,0)}</span></div>
+      <div class="intercept-list">
+        ${triggered.length===0 ? '<div class="intercept-item pass"><span class="intercept-icon">✓</span><div>所有8条拦截规则均未触发</div></div>'
+          : triggered.map(v=>`
+            <div class="intercept-item ${v.intercept_type==='approvable'?'approvable':'hard'}">
+              <span class="intercept-icon">${v.intercept_type==='approvable'?'⚠':'⛔'}</span>
+              <div>${v.message}<span class="cond">条件${v.condition} · ${v.intercept_type==='approvable'?'可特批':'硬拦截'}</span></div>
+            </div>`).join('')}
+      </div>
+      ${d.approvable ? `
+        <div style="margin-top:12px">
+          <div class="form-field full" style="margin-bottom:8px"><label class="form-label">特批理由（L1等级开仓必填，将标记为违规交易）</label><input class="form-input" id="violation_reason" placeholder="说明为何在L1防守等级仍要开仓..."></div>
+          <button class="btn btn-danger btn-block" onclick="submitViolation()">确认特批开仓（标记违规）</button>
+        </div>` : ''}
+    </div>
+  `;
+}
+
 async function runRiskCheck() {
   const body = {
     stock_code: $('#rc_code').value.trim(),
@@ -1637,48 +1685,9 @@ async function runRiskCheck() {
   try {
     const r = await api('/api/risk/check',{method:'POST',body:JSON.stringify(body)});
     const d = r.data;
-    const ar = d.account_risk||{};
-    const pos = d.position||{};
-    const violations = d.violations||[];
-    const triggered = violations.filter(v=>v.triggered);
-    const canPass = !d.blocked;
-    box.innerHTML = `
-      <div style="margin-top:14px">
-        <div class="risk-gauge">
-          <div class="risk-circle ${ar.risk_status==='危险'||ar.risk_status==='停止'?'stop':ar.risk_status==='警告'?'danger':ar.risk_status==='注意'?'warn':''}">
-            <div style="text-align:center">
-              <div class="num mono" style="font-size:16px">${pct(ar.account_risk_pct)}</div>
-              <div style="font-size:10px;color:var(--text-sec)">账户风险</div>
-            </div>
-          </div>
-          <div class="risk-info">
-            <div class="risk-status" style="color:${canPass?'var(--green)':'var(--red)'}">${canPass?'✓ 风险检查通过':'✗ 禁止开仓'}</div>
-            <div class="risk-detail">
-              止损幅度 ${pct(ar.stop_loss_pct)} · 预计最大亏损 ¥${yuan(ar.estimated_max_loss,0)}
-              ${ar.t1_adjusted_risk_pct?`<br>T+1隔夜参考：${pct(ar.t1_adjusted_risk_pct)}（仅提示）`:''}
-            </div>
-          </div>
-        </div>
-        <div class="data-row"><span class="data-label">原始仓位建议</span><span class="data-value mono">¥${yuan(pos.raw_max_position,0)}</span></div>
-        <div class="data-row"><span class="data-label">连续亏损调整</span><span class="data-value mono" style="color:${pos.halved_by_losses?'var(--orange)':'var(--text-sec)'}">${pos.halved_by_losses?'×50%':'无调整'}</span></div>
-        <div class="data-row"><span class="data-label">等级系数调整后</span><span class="data-value mono">¥${yuan(pos.final_max_position,0)}</span></div>
-        <div class="intercept-list">
-          ${triggered.length===0 ? '<div class="intercept-item pass"><span class="intercept-icon">✓</span><div>所有8条拦截规则均未触发</div></div>'
-            : triggered.map(v=>`
-              <div class="intercept-item ${v.intercept_type==='approvable'?'approvable':'hard'}">
-                <span class="intercept-icon">${v.intercept_type==='approvable'?'⚠':'⛔'}</span>
-                <div>${v.message}<span class="cond">条件${v.condition} · ${v.intercept_type==='approvable'?'可特批':'硬拦截'}</span></div>
-              </div>`).join('')}
-        </div>
-        ${d.approvable ? `
-          <div style="margin-top:12px">
-            <div class="form-field full" style="margin-bottom:8px"><label class="form-label">特批理由（L1等级开仓必填，将标记为违规交易）</label><input class="form-input" id="violation_reason" placeholder="说明为何在L1防守等级仍要开仓..."></div>
-            <button class="btn btn-danger btn-block" onclick="submitViolation()">确认特批开仓（标记违规）</button>
-          </div>` : ''}
-      </div>
-    `;
-    // 暂存最后一次检查数据
-    window.__lastRiskCheck = { body, result: d };
+    // 保存到 state，Tab 切换后保留
+    state.riskCheck = { body, result: d };
+    box.innerHTML = renderRiskResult(d);
   } catch(e) { box.innerHTML = ''; }
 }
 
