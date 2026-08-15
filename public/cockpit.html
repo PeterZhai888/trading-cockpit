@@ -216,6 +216,28 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 
 .section-gap{height:8px}
 .loading{opacity:.5;pointer-events:none}
+
+/* 股票搜索联动 */
+.stock-input-group{position:relative}
+.stock-input-icon{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-disabled);pointer-events:none}
+.stock-dropdown{display:none;position:absolute;left:0;right:0;top:calc(100% + 2px);background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:220px;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.stock-dropdown.show{display:block}
+.stock-option{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px}
+.stock-option:last-child{border-bottom:none}
+.stock-option:hover,.stock-option:active{background:var(--card-hover)}
+.stock-option .stock-code{color:var(--blue);font-weight:600;min-width:64px}
+.stock-option .stock-name{flex:1;color:var(--text)}
+.stock-option .stock-badge{font-size:10px;padding:2px 6px;border-radius:var(--radius-xs);background:var(--card-hover);color:var(--text-sec)}
+.stock-option .stock-badge.normal{background:rgba(34,197,94,.15);color:var(--green)}
+.stock-empty{padding:14px;text-align:center;color:var(--text-sec);font-size:12px}
+
+/* 只读字段样式 */
+.form-input[readonly]{background:var(--bg);color:var(--text-sec);cursor:not-allowed;opacity:.85}
+.form-input[readonly]:focus{border-color:var(--border)}
+
+/* 自动化预留标识 */
+.auto-placeholder{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg);border:1px dashed var(--border);border-radius:var(--radius-sm);font-size:11px;color:var(--text-sec);margin-top:10px}
+.auto-placeholder .badge{font-size:9px;padding:1px 5px;background:var(--card-hover);border:1px solid var(--border);border-radius:var(--radius-xs);color:var(--blue);font-weight:600;letter-spacing:.3px}
 </style>
 </head>
 <body>
@@ -657,20 +679,26 @@ function renderInput() {
   return `
     <div class="card">
       <div class="card-header"><div class="card-title"><span class="dot"></span>市场原始数据</div>
-        <span class="card-meta">自动计算环境+情绪</span>
+        <span class="card-meta">手动输入 · 第二阶段接入自动行情</span>
       </div>
       <div class="card-body">
+        <div style="margin-bottom:10px;padding:8px 10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:11px;color:var(--text-sec);line-height:1.5">
+          📡 当前为<b>手动输入</b>模式。第二阶段接入行情接口后，将通过 <code style="color:var(--blue)">GET /api/market/raw?source=xxx</code> 自动拉取实时数据，下方字段可一键填充。
+        </div>
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">上涨家数</label><input class="form-input mono" id="f_up" type="number" value="${raw.up_count||''}" placeholder="3000"></div>
-          <div class="form-field"><label class="form-label">下跌家数</label><input class="form-input mono" id="f_down" type="number" value="${raw.down_count||''}" placeholder="1500"></div>
-          <div class="form-field"><label class="form-label">涨停数量</label><input class="form-input mono" id="f_lu" type="number" value="${raw.limit_up_count||''}" placeholder="50"></div>
-          <div class="form-field"><label class="form-label">跌停数量</label><input class="form-input mono" id="f_ld" type="number" value="${raw.limit_down_count||''}" placeholder="5"></div>
-          <div class="form-field"><label class="form-label">炸板数量</label><input class="form-input mono" id="f_bc" type="number" value="${raw.broken_limit_count||''}" placeholder="10"></div>
-          <div class="form-field"><label class="form-label">炸板率(%)</label><input class="form-input mono" id="f_br" type="number" value="${raw.broken_limit_rate||''}" placeholder="20"></div>
+          <div class="form-field"><label class="form-label">上涨家数</label><input class="form-input mono" id="f_up" type="number" value="${raw.up_count||''}" placeholder="3000" oninput="onMarketInput()"></div>
+          <div class="form-field"><label class="form-label">下跌家数</label><input class="form-input mono" id="f_down" type="number" value="${raw.down_count||''}" placeholder="1500" oninput="onMarketInput()"></div>
+          <div class="form-field"><label class="form-label">涨停数量</label><input class="form-input mono" id="f_lu" type="number" value="${raw.limit_up_count||''}" placeholder="50" oninput="calcBrokenRate()"></div>
+          <div class="form-field"><label class="form-label">跌停数量</label><input class="form-input mono" id="f_ld" type="number" value="${raw.limit_down_count||''}" placeholder="5" oninput="onMarketInput()"></div>
+          <div class="form-field"><label class="form-label">炸板数量</label><input class="form-input mono" id="f_bc" type="number" value="${raw.broken_limit_count||''}" placeholder="10" oninput="calcBrokenRate()"></div>
+          <div class="form-field"><label class="form-label">炸板率(%) <span style="color:var(--text-disabled);font-size:10px">自动</span></label><input class="form-input mono" id="f_br" type="number" value="${raw.broken_limit_rate||''}" placeholder="自动计算" readonly style="background:var(--bg);color:var(--text-sec);cursor:not-allowed"></div>
           <div class="form-field"><label class="form-label">最高连板数</label><input class="form-input mono" id="f_cb" type="number" value="${raw.max_consecutive_boards||''}" placeholder="5"></div>
           <div class="form-field"><label class="form-label">两市成交(亿)</label><input class="form-input mono" id="f_to" type="number" value="${raw.total_turnover?Math.round(raw.total_turnover/1e8):''}" placeholder="12000"></div>
         </div>
-        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitMarket()">计算市场环境 & 情绪</button>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-primary" style="flex:1" onclick="submitMarket()">计算市场环境 & 情绪</button>
+          <button class="btn btn-outline" id="btnAutoFetch" onclick="autoFetchMarket()" disabled title="第二阶段开放" style="opacity:.5;cursor:not-allowed">自动拉取</button>
+        </div>
         ${m ? `
         <div style="margin-top:14px;padding:10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:12px;color:var(--text-sec)">
           上次计算：${m.environment} · ${m.score}分 · ${m.emotion_cycle} · ${lightName(m.emotion_light_suggested)}
@@ -682,16 +710,26 @@ function renderInput() {
     <div class="card">
       <div class="card-header"><div class="card-title"><span class="dot"></span>主线评分录入</div></div>
       <div class="card-body">
-        <div class="form-grid">
-          <div class="form-field full"><label class="form-label">主线名称</label><input class="form-input" id="t_name" value="${th?.theme_name||''}" placeholder="如：人工智能"></div>
-          <div class="form-field"><label class="form-label">资金强度 (0-25)</label><input class="form-input mono" id="t_cap" type="number" min="0" max="25" value="${th?.capital_score??''}"></div>
-          <div class="form-field"><label class="form-label">板块扩散 (0-20)</label><input class="form-input mono" id="t_sp" type="number" min="0" max="20" value="${th?.spread_score??''}"></div>
-          <div class="form-field"><label class="form-label">政策逻辑 (0-15)</label><input class="form-input mono" id="t_pol" type="number" min="0" max="15" value="${th?.policy_score??''}"></div>
-          <div class="form-field"><label class="form-label">持续性 (0-10)</label><input class="form-input mono" id="t_exp" type="number" min="0" max="10" value="${th?.expectation_score??''}"></div>
-          <div class="form-field"><label class="form-label">市场认可 (0-15)</label><input class="form-input mono" id="t_rec" type="number" min="0" max="15" value="${th?.recognition_score??''}"></div>
-          <div class="form-field"><label class="form-label">龙头表现 (0-15)</label><input class="form-input mono" id="t_ld" type="number" min="0" max="15" value="${th?.leader_performance_score??''}"></div>
+        <div style="margin-bottom:10px;padding:8px 10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:11px;color:var(--text-sec);line-height:1.5">
+          🤖 当前为<b>手动打分</b>模式，名称与评分绑定保存。第二阶段接入AI后，输入主线名称将自动拉取板块数据计算「资金强度/板块扩散/龙头表现」三项，AI辅助「政策逻辑/持续性/市场认可」三项。
         </div>
-        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitTheme()">保存主线评分</button>
+        <div class="form-grid">
+          <div class="form-field full">
+            <label class="form-label">主线名称 <span style="color:var(--red)">*</span> <span style="color:var(--text-disabled);font-size:10px">（评分与此名称绑定）</span></label>
+            <input class="form-input" id="t_name" value="${th?.theme_name||''}" placeholder="如：人工智能" oninput="onThemeNameChange()">
+          </div>
+          <div class="form-field"><label class="form-label">资金强度 (0-25)</label><input class="form-input mono score-input" id="t_cap" type="number" min="0" max="25" value="${th?.capital_score??''}" placeholder="0"></div>
+          <div class="form-field"><label class="form-label">板块扩散 (0-20)</label><input class="form-input mono score-input" id="t_sp" type="number" min="0" max="20" value="${th?.spread_score??''}" placeholder="0"></div>
+          <div class="form-field"><label class="form-label">政策逻辑 (0-15) <span style="font-size:10px;color:var(--text-disabled)">AI</span></label><input class="form-input mono score-input" id="t_pol" type="number" min="0" max="15" value="${th?.policy_score??''}" placeholder="0"></div>
+          <div class="form-field"><label class="form-label">持续性 (0-10) <span style="font-size:10px;color:var(--text-disabled)">AI</span></label><input class="form-input mono score-input" id="t_exp" type="number" min="0" max="10" value="${th?.expectation_score??''}" placeholder="0"></div>
+          <div class="form-field"><label class="form-label">市场认可 (0-15) <span style="font-size:10px;color:var(--text-disabled)">AI</span></label><input class="form-input mono score-input" id="t_rec" type="number" min="0" max="15" value="${th?.recognition_score??''}" placeholder="0"></div>
+          <div class="form-field"><label class="form-label">龙头表现 (0-15)</label><input class="form-input mono score-input" id="t_ld" type="number" min="0" max="15" value="${th?.leader_performance_score??''}" placeholder="0"></div>
+        </div>
+        <div id="themeTotal" style="margin-top:10px;font-size:12px;color:var(--text-sec)">总分：<span class="mono" style="color:var(--blue);font-weight:600;font-size:15px">--</span> / 100</div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-primary" style="flex:1" onclick="submitTheme()">保存主线评分</button>
+          <button class="btn btn-outline" id="btnAITheme" onclick="autoFillThemeScores()" disabled title="第二阶段开放" style="opacity:.5;cursor:not-allowed">AI 打分</button>
+        </div>
       </div>
     </div>
 
@@ -782,8 +820,7 @@ function renderTrades() {
       <div class="card-header"><div class="card-title"><span class="dot"></span>新建交易</div></div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" placeholder="600519"></div>
-          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" placeholder="贵州茅台"></div>
+          ${stockSearchFields('nt')}
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="nt_buy" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" value="100"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="nt_stop" type="number" step="0.001"></div>
@@ -873,6 +910,95 @@ function showModal(html) {
 function closeModal(){ $('#modalMask').classList.remove('show'); }
 $('#modalMask').addEventListener('click',(e)=>{ if(e.target===$('#modalMask')) closeModal(); });
 
+// ====== 股票代码/名称联动搜索 ======
+let __stockSearchTimer = null;
+async function bindStockSearch(codeId, nameId){
+  const codeEl = document.getElementById(codeId);
+  const nameEl = document.getElementById(nameId);
+  if(!codeEl || !nameEl) return;
+  const wrapper = codeEl.closest('.stock-input-group') || codeEl.parentElement;
+  // 下拉容器
+  let dd = wrapper.querySelector('.stock-dropdown');
+  if(!dd){
+    dd = document.createElement('div');
+    dd.className = 'stock-dropdown';
+    wrapper.appendChild(dd);
+  }
+  const doSearch = async (keyword)=>{
+    if(!keyword || keyword.length<1){ dd.classList.remove('show'); dd.innerHTML=''; return; }
+    try {
+      const r = await api(`/api/stock/search?keyword=${encodeURIComponent(keyword)}`,{method:'GET'});
+      const list = r.data||[];
+      if(!list.length){
+        dd.innerHTML = '<div class="stock-empty">未找到匹配股票</div>';
+        dd.classList.add('show');
+        return;
+      }
+      dd.innerHTML = list.map(s=>`
+        <div class="stock-option" data-code="${s.code}" data-name="${s.name}">
+          <span class="stock-code mono">${s.code}</span>
+          <span class="stock-name">${s.name}</span>
+          <span class="stock-badge ${s.status==='normal'?'normal':''}">${s.status==='normal'?'沪深主板':stockStatusLabel(s.status)}</span>
+        </div>`).join('');
+      dd.classList.add('show');
+      dd.querySelectorAll('.stock-option').forEach(op=>{
+        op.addEventListener('click',()=>{
+          codeEl.value = op.dataset.code;
+          nameEl.value = op.dataset.name;
+          dd.classList.remove('show');
+          codeEl.dispatchEvent(new Event('change',{bubbles:true}));
+        });
+      });
+    } catch(e){}
+  };
+  const onInput = (el, other)=>{
+    clearTimeout(__stockSearchTimer);
+    __stockSearchTimer = setTimeout(()=>doSearch(el.value.trim()), 250);
+  };
+  codeEl.addEventListener('input',()=>onInput(codeEl,nameEl));
+  nameEl.addEventListener('input',()=>onInput(nameEl,codeEl));
+  // 点击外部关闭
+  document.addEventListener('click',(e)=>{
+    if(!wrapper.contains(e.target)) dd.classList.remove('show');
+  });
+}
+function stockStatusLabel(s){
+  return {excluded_st:'ST',excluded_delisting:'退市',excluded_suspended:'停牌',
+    excluded_non_mainboard:'非主板',excluded_liquidity:'流动性不足'}[s]||s;
+}
+
+// 炸板率自动计算
+function recalcBrokenRate(){
+  const lu = parseFloat(document.getElementById('f_lu')?.value)||0;
+  const bc = parseFloat(document.getElementById('f_bc')?.value)||0;
+  const brEl = document.getElementById('f_br');
+  if(!brEl) return;
+  if(lu+bc>0){
+    brEl.value = ((bc/(lu+bc))*100).toFixed(1);
+  } else {
+    brEl.value = '';
+  }
+}
+
+// 风险检查：自动算金额 + 100股校验
+function recalcPlanAmount(){
+  const price = parseFloat(document.getElementById('rc_buy')?.value)||0;
+  const qty = parseFloat(document.getElementById('rc_qty')?.value)||0;
+  const amtEl = document.getElementById('rc_amt_readonly');
+  if(!amtEl) return;
+  if(price>0 && qty>0){
+    amtEl.value = (price*qty).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+  } else {
+    amtEl.value = '';
+  }
+}
+function validateLotSize(qty){
+  if(!qty || qty<=0){ showToast('买入数量必须大于0','error'); return false; }
+  if(qty % 100 !== 0){ showToast('A股买入数量必须是100股的整数倍','error'); return false; }
+  return true;
+}
+
+
 function showAddPosition(id) {
   showModal(`
     <div class="modal-title">加仓</div>
@@ -947,13 +1073,14 @@ function renderCheck() {
       </div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" placeholder="600519"></div>
-          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" placeholder="可选"></div>
-          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001"></div>
+          ${stockSearchFields('rc')}
+          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001" oninput="recalcRiskAmount()"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001"></div>
-          <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000"></div>
+          <div class="form-field"><label class="form-label">计划买入数量(股)</label><input class="form-input mono" id="rc_qty" type="number" step="100" placeholder="100" oninput="recalcRiskAmount()"></div>
+          <div class="form-field"><label class="form-label">金额(自动计算)</label><input class="form-input mono" id="rc_amt" readonly placeholder="买入价 × 数量" style="opacity:.8;cursor:not-allowed"></div>
         </div>
-        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="runRiskCheck()">执行风险检查</button>
+        <div style="margin-top:6px;font-size:11px;color:var(--text-sec)">提示：数量需为100股整数倍；金额=买入价×数量，提交时传后端。</div>
+        <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="runRiskCheck()">执行风险检查</button>
         <div id="riskResult"></div>
       </div>
     </div>
@@ -987,15 +1114,21 @@ function renderCheck() {
 }
 
 async function runRiskCheck() {
+  const qty = +$('#rc_qty').value;
+  const buyPrice = +$('#rc_buy').value;
+  if (!buyPrice || buyPrice <= 0) return showToast('请输入有效的买入价','error');
+  if (!qty || qty <= 0) return showToast('计划买入数量必须大于0','error');
+  if (qty % 100 !== 0) return showToast('A股买入数量须为100股整数倍','error');
+  const amount = +(buyPrice * qty).toFixed(2);
   const body = {
     stock_code: $('#rc_code').value.trim(),
     stock_name: $('#rc_name').value.trim() || undefined,
-    buy_price: +$('#rc_buy').value,
+    buy_price: buyPrice,
     stop_price: +$('#rc_stop').value,
-    plan_buy_amount: +$('#rc_amt').value || undefined
+    plan_buy_amount: amount
   };
-  if (!body.stock_code || !body.buy_price || !body.stop_price) {
-    return showToast('代码/买入价/止损价必填','error');
+  if (!body.stock_code || !body.stop_price) {
+    return showToast('代码/止损价必填','error');
   }
   const box = $('#riskResult');
   box.innerHTML = '<div class="empty" style="padding:16px">检查中...</div>';
