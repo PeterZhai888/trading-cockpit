@@ -10,12 +10,12 @@ export type EmotionLight = 'green' | 'yellow' | 'orange' | 'red';
 
 /** 情绪周期六阶段 */
 export type EmotionCycle =
+  | '冰点'
+  | '修复'
   | '启动'
-  | '发酵'
-  | '高潮'
   | '分歧'
-  | '退潮'
-  | '冰点';
+  | '高潮'
+  | '退潮';
 
 /** 最终交易等级 */
 export type FinalLevel = 'L0' | 'L1' | 'L2' | 'L3';

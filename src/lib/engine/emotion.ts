@@ -11,10 +11,10 @@ import type {
  * 基于市场数据推断情绪周期和建议灯号。
  * 注意：此模块输出的是"建议值"，必须经人工确认后才能用于状态调和。
  *
- * 情绪周期六阶段判定逻辑：
+ * 情绪周期六阶段判定逻辑（v0.6 标准命名）：
  * - 冰点：涨停<10，跌停>20，炸板率>40%
- * - 启动：涨停15-30，昨日涨停反馈转好，连板高度从低位回升
- * - 发酵：涨停30-60，连板高度3-5板，炸板率下降
+ * - 修复：涨停15-30，昨日涨停反馈转好，连板高度从低位回升（原"启动20-40"）
+ * - 启动：涨停30-60，连板高度3-5板，炸板率下降（原"发酵"）
  * - 高潮：涨停>60，连板高度≥6板，市场一致性强
  * - 分歧：涨停数量开始下降，炸板率上升，高位股出现亏钱效应
  * - 退潮：跌停增加，连板高度下降，高位股补跌
@@ -62,7 +62,7 @@ function determineCycle(data: EmotionInput): EmotionCycle {
     return '退潮';
   }
 
-  // 启动条件：从冰点回升
+  // 修复条件（原"启动"）：从冰点低位回升
   if (
     limit_up_count >= 15 &&
     limit_up_count <= 30 &&
@@ -70,10 +70,10 @@ function determineCycle(data: EmotionInput): EmotionCycle {
       limit_up_count > prev_limit_up_count) &&
     max_consecutive_boards <= 3
   ) {
-    return '启动';
+    return '修复';
   }
 
-  // 发酵条件
+  // 启动条件（原"发酵"）：情绪持续扩散
   if (
     limit_up_count >= 30 &&
     limit_up_count <= 60 &&
@@ -81,7 +81,7 @@ function determineCycle(data: EmotionInput): EmotionCycle {
     max_consecutive_boards <= 5 &&
     broken_limit_rate < 30
   ) {
-    return '发酵';
+    return '启动';
   }
 
   // 分歧条件：涨停开始下降或炸板率上升
@@ -93,9 +93,9 @@ function determineCycle(data: EmotionInput): EmotionCycle {
     return '分歧';
   }
 
-  // 默认根据涨停数量粗判
-  if (limit_up_count >= 40) return '发酵';
-  if (limit_up_count >= 15) return '启动';
+  // 默认根据涨停数量粗判：≥40归启动，15-39归修复，<15归冰点
+  if (limit_up_count >= 40) return '启动';
+  if (limit_up_count >= 15) return '修复';
   return '冰点';
 }
 
@@ -103,12 +103,12 @@ function determineCycle(data: EmotionInput): EmotionCycle {
  * 情绪周期映射建议灯号
  */
 const CYCLE_TO_LIGHT: Record<EmotionCycle, EmotionLight> = {
-  启动: 'green',
-  发酵: 'green',
-  高潮: 'yellow',   // 高潮期需要注意风险，黄灯
-  分歧: 'yellow',
-  退潮: 'orange',
   冰点: 'red',
+  修复: 'green',
+  启动: 'green',
+  分歧: 'yellow',
+  高潮: 'yellow',   // 高潮期需要注意风险，黄灯
+  退潮: 'orange',
 };
 
 /**
@@ -144,10 +144,10 @@ export const LIGHT_LABELS: Record<EmotionLight, string> = {
  * 情绪周期描述
  */
 export const CYCLE_DESCRIPTIONS: Record<EmotionCycle, string> = {
-  启动: '市场情绪从冰点回升，赚钱效应初现',
-  发酵: '情绪持续扩散，主线逐渐清晰',
-  高潮: '市场一致性强，但需警惕高位风险',
-  分歧: '资金出现分歧，高位股波动加大',
-  退潮: '赚钱效应消退，控制仓位为主',
   冰点: '市场极度低迷，观望为主',
+  修复: '情绪从冰点回升，赚钱效应初现',
+  启动: '情绪持续扩散，主线逐渐清晰',
+  分歧: '资金出现分歧，高位股波动加大',
+  高潮: '市场一致性强，但需警惕高位风险',
+  退潮: '赚钱效应消退，控制仓位为主',
 };
