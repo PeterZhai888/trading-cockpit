@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
-  getAccountConfig,
+  getAccountConfigOrNull,
   updateAccountConfig,
   getSuspensionRemainingDays,
   resetConsecutiveLosses,
@@ -16,14 +16,14 @@ export const runtime = 'nodejs';
 export async function GET() {
   try {
     const [config, suspensionDays] = await Promise.all([
-      getAccountConfig(),
+      getAccountConfigOrNull(),
       getSuspensionRemainingDays(),
     ]);
 
     return NextResponse.json({
       success: true,
       data: {
-        ...config,
+        ...(config ?? {}),
         suspension_remaining_days: suspensionDays,
       },
     });
@@ -85,12 +85,12 @@ export async function POST() {
 
 /**
  * DELETE /api/account
- * 清空账户配置，重置为默认值
+ * 清空账户配置，删除配置行
  */
 export async function DELETE() {
   try {
-    const config = await resetAccountConfig();
-    return NextResponse.json({ success: true, data: config });
+    await resetAccountConfig();
+    return NextResponse.json({ success: true, message: '账户配置已清空' });
   } catch (err) {
     const message = err instanceof Error ? err.message : '重置账户配置失败';
     return NextResponse.json({ error: message }, { status: 500 });

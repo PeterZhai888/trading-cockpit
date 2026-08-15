@@ -61,6 +61,22 @@ export async function getAccountConfig(): Promise<AccountConfig> {
 }
 
 /**
+ * 获取账户配置，不存在时返回 null（不自动创建）
+ * 用于前端展示，区分"从未保存"和"已保存默认值"
+ */
+export async function getAccountConfigOrNull(): Promise<AccountConfig | null> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('account_config')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle();
+
+  if (error) throw new Error(`查询账户配置失败: ${error.message}`);
+  return data ? mapConfig(data as Record<string, unknown>) : null;
+}
+
+/**
  * 更新账户配置
  */
 export async function updateAccountConfig(
@@ -68,10 +84,12 @@ export async function updateAccountConfig(
 ): Promise<AccountConfig> {
   const client = getSupabaseClient();
 
+  // 使用 upsert 确保行不存在时自动创建
   const { data, error } = await client
     .from('account_config')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', 1)
+    .upsert({ id: 1, ...updates, updated_at: new Date().toISOString() }, {
+      onConflict: 'id',
+    })
     .select()
     .single();
 
@@ -129,17 +147,14 @@ export async function resetConsecutiveLosses(): Promise<void> {
 }
 
 /**
- * 清空账户配置，重置为默认值
+ * 清空账户配置，删除配置行（前端显示为"暂无数据"）
  */
-export async function resetAccountConfig(): Promise<AccountConfig> {
+export async function resetAccountConfig(): Promise<void> {
   const client = getSupabaseClient();
-  const { data, error } = await client
+  const { error } = await client
     .from('account_config')
-    .update({ ...DEFAULT_CONFIG, updated_at: new Date().toISOString() })
-    .eq('id', 1)
-    .select()
-    .single();
+    .delete()
+    .eq('id', 1);
 
   if (error) throw new Error(`重置账户配置失败: ${error.message}`);
-  return mapConfig(data as Record<string, unknown>);
 }
