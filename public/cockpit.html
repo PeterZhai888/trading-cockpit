@@ -251,6 +251,40 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 
 .section-gap{height:8px}
 .loading{opacity:.5;pointer-events:none}
+
+/* ====== 复盘统计 ====== */
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.kpi{background:var(--input);border:1px solid var(--border);border-radius:6px;padding:10px}
+.kpi-label{font-size:11px;color:var(--text-sec);margin-bottom:4px}
+.kpi-value{font-size:20px;font-weight:600;line-height:1.2}
+.kpi-sub{font-size:10px;color:var(--text-sec);margin-top:2px}
+.stat-bars{display:flex;flex-direction:column;gap:6px}
+.stat-bar-row{display:grid;grid-template-columns:54px 1fr 80px;align-items:center;gap:8px;font-size:12px}
+.stat-bar-label{color:var(--text-sec);font-size:11px}
+.stat-bar-track{height:10px;background:var(--input);border-radius:3px;overflow:hidden;position:relative}
+.stat-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.stat-bar-fill.pos{background:var(--up)}
+.stat-bar-fill.neg{background:var(--down)}
+.stat-bar-val{text-align:right;font-size:11px;font-weight:600}
+.stat-pill-table{display:flex;flex-direction:column;gap:4px}
+.stat-pill-row{display:grid;grid-template-columns:1.2fr 50px 50px 1fr;gap:6px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:12px}
+.stat-pill-row:last-child{border-bottom:none}
+.stat-pill-row.head{font-size:10px;color:var(--text-sec);text-transform:uppercase;border-bottom:1px solid var(--border);padding:6px 4px}
+.stat-pill-row.head span:not(:first-child){text-align:right}
+.stat-pill-name{color:var(--text)}
+.stat-pill-row .mono{text-align:right;font-size:11px}
+.recent-list{display:flex;flex-direction:column}
+.recent-row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 4px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.recent-row:hover{background:var(--input)}
+.recent-row:last-child{border-bottom:none}
+.recent-main{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.recent-code{color:var(--text-sec);font-size:11px}
+.recent-tag{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,.15);color:var(--down);font-weight:600}
+.recent-sub{grid-column:1;display:flex;gap:10px;font-size:10px;color:var(--text-sec)}
+.recent-pnl{grid-row:1/span 2;grid-column:2;align-self:center;text-align:right;font-size:14px;font-weight:600}
+.recent-pnl small{font-size:10px;opacity:.8;font-weight:400}
+.skeleton-lines .sk-line{height:14px;background:linear-gradient(90deg,var(--card) 0%,var(--input) 50%,var(--card) 100%);background-size:200% 100%;border-radius:3px;margin-bottom:8px;animation:sk-pulse 1.4s ease-in-out infinite}
+@keyframes sk-pulse{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style>
 </head>
 <body>
@@ -289,6 +323,7 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
     <button class="tab-btn" data-tab="trades">持仓</button>
     <button class="tab-btn" data-tab="check">风控</button>
     <button class="tab-btn" data-tab="ai">AI分析</button>
+    <button class="tab-btn" data-tab="stats">复盘</button>
   </div>
   <div id="tabContent"></div>
 </div>
@@ -512,8 +547,9 @@ function renderTab(tab) {
   else if (tab==='trades') c.innerHTML = renderTrades();
   else if (tab==='check') c.innerHTML = renderCheck();
   else if (tab==='ai') c.innerHTML = renderAI();
+  else if (tab==='stats') c.innerHTML = renderStats();
   if (tab==='ai') loadAIHistory();
-  else if (tab==='ai') c.innerHTML = renderAI();
+  if (tab==='stats') loadStats();
   bindTabEvents(tab);
 }
 
@@ -1518,6 +1554,273 @@ function bindAutoComplete() {
 document.addEventListener('click', (e)=>{
   if (!e.target.closest('.stock-field')) closeSuggest();
 });
+
+// ====== 第 6 Tab：复盘统计 ======
+const statsState = { loading: false, data: null, error: null, range: 'all' };
+
+function renderStats() {
+  if (statsState.loading && !statsState.data) {
+    return `
+      <div class="card">
+        <div class="card-header"><div class="card-title"><span class="dot"></span>交易统计</div></div>
+        <div class="card-body skeleton-lines">
+          <div class="sk-line" style="width:60%"></div>
+          <div class="sk-line" style="width:80%"></div>
+          <div class="sk-line" style="width:40%"></div>
+        </div>
+      </div>`;
+  }
+  if (statsState.error && !statsState.data) {
+    return `<div class="card"><div class="card-body empty"><span class="icon">⚠️</span>${escapeHtml(statsState.error)}</div></div>`;
+  }
+  const s = statsState.data;
+  if (!s) return `<div class="card"><div class="card-body empty"><span class="icon">📊</span>暂无统计数据，请先完成至少一笔已平仓交易</div></div>`;
+
+  const o = s.overview;
+  const pnlColor = o.total_pnl >= 0 ? 'var(--up)' : 'var(--down)';
+  const winColor = o.win_rate >= 0.5 ? 'var(--up)' : o.win_rate >= 0.35 ? 'var(--yellow)' : 'var(--down)';
+  const pfColor = o.profit_factor >= 1.5 ? 'var(--up)' : o.profit_factor >= 1 ? 'var(--yellow)' : 'var(--down)';
+  const pfText = Number.isFinite(o.profit_factor) ? o.profit_factor.toFixed(2) : (o.profit_factor > 0 ? '∞' : '0.00');
+
+  // 月度条形图
+  const maxAbsPnl = Math.max(1, ...s.monthly.map(m => Math.abs(m.pnl)));
+  const monthlyRows = s.monthly.length ? s.monthly.map(m => {
+    const w = Math.abs(m.pnl) / maxAbsPnl * 100;
+    const positive = m.pnl >= 0;
+    return `
+      <div class="stat-bar-row">
+        <span class="stat-bar-label mono">${m.month}</span>
+        <div class="stat-bar-track">
+          <div class="stat-bar-fill ${positive?'pos':'neg'}" style="width:${w}%"></div>
+        </div>
+        <span class="stat-bar-val mono ${positive?'up':'down'}">${m.pnl>=0?'+':''}${yuan(m.pnl,0)}</span>
+      </div>`;
+  }).join('') : '<div class="empty" style="padding:12px">暂无月度数据</div>';
+
+  // 权益曲线（纯 SVG）
+  const equitySvg = renderEquitySvg(s.equity_curve, s.drawdown);
+
+  // 模式统计
+  const modeRows = s.by_mode.length ? s.by_mode.map(m => `
+    <div class="stat-pill-row">
+      <span class="stat-pill-name">${escapeHtml(m.mode)}</span>
+      <span class="mono">${m.count}笔</span>
+      <span class="mono" style="color:${m.win_rate>=0.5?'var(--up)':'var(--down)'}">${(m.win_rate*100).toFixed(0)}%</span>
+      <span class="mono ${m.total_pnl>=0?'up':'down'}">${m.total_pnl>=0?'+':''}${yuan(m.total_pnl,0)}</span>
+    </div>`).join('') : '<div class="empty" style="padding:12px">暂无数据</div>';
+
+  // 主线统计
+  const themeRows = s.by_theme.length ? s.by_theme.map(t => `
+    <div class="stat-pill-row">
+      <span class="stat-pill-name">${escapeHtml(t.theme)}</span>
+      <span class="mono">${t.count}笔</span>
+      <span class="mono" style="color:${t.win_rate>=0.5?'var(--up)':'var(--down)'}">${(t.win_rate*100).toFixed(0)}%</span>
+      <span class="mono ${t.total_pnl>=0?'up':'down'}">${t.total_pnl>=0?'+':''}${yuan(t.total_pnl,0)}</span>
+    </div>`).join('') : '<div class="empty" style="padding:12px">暂无数据</div>';
+
+  // 等级统计
+  const levelRows = s.by_level.length ? s.by_level.map(l => `
+    <div class="stat-pill-row">
+      <span class="stat-pill-name">${escapeHtml(l.level)}</span>
+      <span class="mono">${l.count}笔</span>
+      <span class="mono" style="color:${l.win_rate>=0.5?'var(--up)':'var(--down)'}">${(l.win_rate*100).toFixed(0)}%</span>
+      <span class="mono ${l.total_pnl>=0?'up':'down'}">${l.total_pnl>=0?'+':''}${yuan(l.total_pnl,0)}</span>
+    </div>`).join('') : '<div class="empty" style="padding:12px">暂无数据</div>';
+
+  // 违规统计
+  const violationBlock = o.violation_count > 0 ? `
+    <div class="intercept-item ${o.violation_win_count > o.violation_loss_count ? 'approvable' : 'hard'}" style="margin-top:8px">
+      <span class="intercept-icon">🚩</span>
+      <div>
+        违规交易 ${o.violation_count} 笔：盈 ${o.violation_win_count} / 亏 ${o.violation_loss_count}
+        <div class="cond">违规交易胜率 ${o.violation_count ? (o.violation_win_count/o.violation_count*100).toFixed(0) : 0}%，用于纪律复盘</div>
+      </div>
+    </div>` : '';
+
+  // 最近交易
+  const recentRows = s.recent.length ? s.recent.map(t => {
+    const pnl = Number(t.profit_loss||0);
+    const pct = t.buy_price && t.sell_price ? ((t.sell_price - t.buy_price)/t.buy_price*100) : 0;
+    return `
+      <div class="recent-row" onclick="jumpToReview('${t.trade_id}')">
+        <div class="recent-main">
+          <span class="recent-name">${escapeHtml(t.stock_name||t.stock_code)}</span>
+          <span class="recent-code mono">${t.stock_code}</span>
+          ${t.is_violation?'<span class="recent-tag violation">违规</span>':''}
+        </div>
+        <div class="recent-sub">
+          <span>${t.trade_mode||'--'}</span>
+          <span>${t.final_level||'--'}</span>
+          <span>${t.sell_time ? new Date(t.sell_time).toLocaleDateString('zh-CN') : '--'}</span>
+        </div>
+        <div class="recent-pnl ${pnl>=0?'up':'down'} mono">
+          ${pnl>=0?'+':''}${yuan(pnl,0)} <small>(${pct>=0?'+':''}${pct.toFixed(2)}%)</small>
+        </div>
+      </div>`;
+  }).join('') : '<div class="empty" style="padding:12px">暂无已平仓交易</div>';
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>核心指标</div>
+        <span class="card-meta">基于 ${o.total} 笔已平仓</span>
+      </div>
+      <div class="card-body">
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi-label">累计盈亏</div>
+            <div class="kpi-value mono" style="color:${pnlColor}">${o.total_pnl>=0?'+':''}${yuan(o.total_pnl,0)}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">胜率</div>
+            <div class="kpi-value mono" style="color:${winColor}">${(o.win_rate*100).toFixed(1)}%</div>
+            <div class="kpi-sub">${o.wins}胜 / ${o.losses}负 / ${o.scratch}平</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">盈亏比</div>
+            <div class="kpi-value mono" style="color:${pfColor}">${pfText}</div>
+            <div class="kpi-sub">平均盈${yuan(o.avg_win,0)} / 亏${yuan(Math.abs(o.avg_loss),0)}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">期望收益</div>
+            <div class="kpi-value mono" style="color:${o.expectancy>=0?'var(--up)':'var(--down)'}">${o.expectancy>=0?'+':''}${yuan(o.expectancy,0)}</div>
+            <div class="kpi-sub">单笔平均</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">最大连胜/连亏</div>
+            <div class="kpi-value mono">${o.max_consecutive_wins} / ${o.max_consecutive_losses}</div>
+            <div class="kpi-sub">当前${o.current_consecutive_losses>0?'连亏'+o.current_consecutive_losses:o.current_consecutive_wins>0?'连胜'+o.current_consecutive_wins:'--'}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">最大回撤</div>
+            <div class="kpi-value mono down">${yuan(Math.abs(s.drawdown.max_drawdown),0)}</div>
+            <div class="kpi-sub">${(Math.abs(s.drawdown.max_drawdown_pct)*100).toFixed(1)}%</div>
+          </div>
+        </div>
+        ${violationBlock}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>权益曲线</div></div>
+      <div class="card-body" style="padding:8px 12px">${equitySvg}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>月度收益</div></div>
+      <div class="card-body" style="padding:12px">
+        <div class="stat-bars">${monthlyRows}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>按交易模式</div></div>
+      <div class="card-body" style="padding:4px 12px 12px">
+        <div class="stat-pill-table">
+          <div class="stat-pill-row head"><span>模式</span><span>笔数</span><span>胜率</span><span>盈亏</span></div>
+          ${modeRows}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>按主线</div></div>
+      <div class="card-body" style="padding:4px 12px 12px">
+        <div class="stat-pill-table">
+          <div class="stat-pill-row head"><span>主线</span><span>笔数</span><span>胜率</span><span>盈亏</span></div>
+          ${themeRows}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>按交易等级</div></div>
+      <div class="card-body" style="padding:4px 12px 12px">
+        <div class="stat-pill-table">
+          <div class="stat-pill-row head"><span>等级</span><span>笔数</span><span>胜率</span><span>盈亏</span></div>
+          ${levelRows}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>最近已平仓</div>
+        <span class="card-meta">点击发起 AI 复盘</span>
+      </div>
+      <div class="card-body" style="padding:6px 12px 12px">
+        <div class="recent-list">${recentRows}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderEquitySvg(curve, dd) {
+  if (!curve || curve.length === 0) {
+    return '<div class="empty" style="padding:24px">暂无权益数据</div>';
+  }
+  const W = 320, H = 140, PAD_L = 36, PAD_R = 8, PAD_T = 10, PAD_B = 20;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+  const values = curve.map(p => p.equity);
+  // 让基准线（0）可见
+  const minV = Math.min(0, ...values);
+  const maxV = Math.max(0, ...values, dd.peak);
+  const range = Math.max(1, maxV - minV);
+  const n = curve.length;
+  const xAt = (i) => PAD_L + (n <= 1 ? innerW/2 : (i/(n-1))*innerW);
+  const yAt = (v) => PAD_T + (1 - (v - minV)/range)*innerH;
+
+  const pts = curve.map((p,i)=>`${xAt(i).toFixed(1)},${yAt(p.equity).toFixed(1)}`).join(' ');
+  const areaPts = `${PAD_L},${yAt(0).toFixed(1)} ${pts} ${xAt(n-1).toFixed(1)},${yAt(0).toFixed(1)}`;
+
+  // Y 轴刻度
+  const ticks = [minV, (minV+maxV)/2, maxV];
+  const yTicks = ticks.map(v => {
+    const y = yAt(v);
+    return `<line x1="${PAD_L}" x2="${W-PAD_R}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-dasharray="2,3" stroke-width="1"/>
+            <text x="${PAD_L-4}" y="${y+3}" text-anchor="end" font-size="9" fill="var(--text-sec)" font-family="JetBrains Mono,monospace">${v>=0?'+':''}${Math.round(v)}</text>`;
+  }).join('');
+
+  const zeroY = yAt(0);
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" style="display:block">
+      ${yTicks}
+      <line x1="${PAD_L}" x2="${W-PAD_R}" y1="${zeroY}" y2="${zeroY}" stroke="var(--text-sec)" stroke-width="1" stroke-dasharray="4,3"/>
+      <polygon points="${areaPts}" fill="var(--up)" opacity="0.12"/>
+      <polyline points="${pts}" fill="none" stroke="var(--up)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      ${curve.map((p,i)=>`<circle cx="${xAt(i)}" cy="${yAt(p.equity)}" r="1.6" fill="${p.equity>=0?'var(--up)':'var(--down)'}"/>`).join('')}
+    </svg>`;
+}
+
+async function loadStats() {
+  if (statsState.loading) return;
+  statsState.loading = true;
+  if (!statsState.data) renderTab('stats');
+  try {
+    const res = await fetch('/api/stats/overview').then(r=>r.json());
+    if (!res.success) throw new Error(res.error || '统计失败');
+    statsState.data = res.data;
+    statsState.error = null;
+  } catch (e) {
+    statsState.error = e.message || '统计失败';
+  } finally {
+    statsState.loading = false;
+    if (state.currentTab === 'stats') renderTab('stats');
+  }
+}
+
+function jumpToReview(tradeId) {
+  state.currentTab = 'ai';
+  aiState.scene = 'review';
+  // 等 tab 渲染后再选中
+  setTimeout(() => {
+    const sel = $('#ai_trade_id');
+    if (sel) sel.value = tradeId;
+  }, 50);
+  renderTab('ai');
+}
 
 // 页面初始化
 loadAll();
