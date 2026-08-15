@@ -32,13 +32,24 @@ export async function POST(request: Request) {
       confirmed_light?: EmotionLight | null;
     };
 
+    const up = body.up_count ?? 0;
+    const down = body.down_count ?? 0;
+    const limitUp = body.limit_up_count ?? 0;
+    const limitDown = body.limit_down_count ?? 0;
+    const broken = body.broken_limit_count ?? 0;
+    // 炸板率兜底：若前端未传或为 0，但炸板数 > 0，按同花顺口径自动计算
+    // 公式 = 炸板数 / (涨停数 + 炸板数) × 100%
+    let brokenRate = body.broken_limit_rate ?? 0;
+    if ((!brokenRate || brokenRate <= 0) && broken > 0) {
+      brokenRate = Number(((broken / (limitUp + broken)) * 100).toFixed(2));
+    }
     const rawData: MarketRawData = {
-      up_count: body.up_count ?? 0,
-      down_count: body.down_count ?? 0,
-      limit_up_count: body.limit_up_count ?? 0,
-      limit_down_count: body.limit_down_count ?? 0,
-      broken_limit_count: body.broken_limit_count ?? 0,
-      broken_limit_rate: body.broken_limit_rate ?? 0,
+      up_count: up,
+      down_count: down,
+      limit_up_count: limitUp,
+      limit_down_count: limitDown,
+      broken_limit_count: broken,
+      broken_limit_rate: brokenRate,
       max_consecutive_boards: body.max_consecutive_boards ?? 0,
       total_turnover: body.total_turnover ?? 0,
     };
