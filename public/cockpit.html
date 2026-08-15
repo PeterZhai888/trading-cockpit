@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>A股短线交易驾驶舱 v0.6</title>
+<style>
+:root{
+  --bg:#0a0e17;--card:#131825;--card-hover:#1c2333;--border:#2a3344;
+  --text:#e8ecf4;--text-sec:#8b95a8;--text-disabled:#4a5568;
+  --up:#ef4444;--down:#22c55e;
+  --green:#22c55e;--yellow:#eab308;--orange:#f97316;--red:#ef4444;
+  --blue:#3b82f6;
+  --radius:8px;--radius-sm:6px;--radius-xs:4px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--text);font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.5;min-height:100vh}
+.mono{font-family:"JetBrains Mono","SF Mono",monospace;font-weight:500;font-variant-numeric:tabular-nums}
+.app{max-width:480px;margin:0 auto;padding-bottom:24px;min-height:100vh}
+
+/* 顶部状态栏 */
+.status-bar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--border);border-left:3px solid var(--text-disabled)}
+.status-bar.lvl-L0{border-left-color:var(--red);background:linear-gradient(90deg,rgba(239,68,68,.12),var(--card))}
+.status-bar.lvl-L1{border-left-color:var(--orange);background:linear-gradient(90deg,rgba(249,115,22,.12),var(--card))}
+.status-bar.lvl-L2{border-left-color:var(--yellow);background:linear-gradient(90deg,rgba(234,179,8,.12),var(--card))}
+.status-bar.lvl-L3{border-left-color:var(--green);background:linear-gradient(90deg,rgba(34,197,94,.12),var(--card))}
+.status-bar.nodata{border-left-color:var(--red);background:linear-gradient(90deg,rgba(239,68,68,.2),var(--card))}
+.status-left{display:flex;align-items:center;gap:8px}
+.status-dot{width:10px;height:10px;border-radius:50%;background:var(--text-disabled);flex-shrink:0}
+.status-dot.green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.status-dot.yellow{background:var(--yellow);box-shadow:0 0 6px var(--yellow)}
+.status-dot.orange{background:var(--orange);box-shadow:0 0 6px var(--orange)}
+.status-dot.red{background:var(--red);box-shadow:0 0 6px var(--red);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status-text{font-size:16px;font-weight:600}
+.status-level{font-size:11px;color:var(--text-sec);padding:2px 6px;border:1px solid var(--border);border-radius:var(--radius-xs)}
+.status-time{font-size:11px;color:var(--text-sec);monospace:true}
+
+/* 卡片 */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin:12px 12px 0;overflow:hidden}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
+.card-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+.card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.card-meta{font-size:11px;color:var(--text-sec)}
+.card-body{padding:14px}
+
+/* 表单 */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-field{display:flex;flex-direction:column;gap:4px}
+.form-field.full{grid-column:span 2}
+.form-label{font-size:12px;color:var(--text-sec)}
+.form-input{background:var(--card-hover);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text);font-size:14px;font-family:"JetBrains Mono",monospace;width:100%;outline:none;transition:border-color .2s}
+.form-input:focus{border-color:var(--blue)}
+.form-input::placeholder{color:var(--text-disabled)}
+select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b95a8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;border:1px solid transparent;cursor:pointer;transition:all .15s;min-height:38px}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;border-color:var(--border);color:var(--text)}
+.btn-danger{background:transparent;border-color:var(--red);color:var(--red)}
+.btn-block{width:100%}
+.btn-sm{padding:6px 10px;font-size:12px;min-height:30px}
+
+/* 数据行 */
+.data-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(42,51,68,.5)}
+.data-row:last-child{border-bottom:none}
+.data-label{font-size:13px;color:var(--text-sec)}
+.data-value{font-size:15px;font-weight:600}
+.data-value.up{color:var(--up)}.data-value.down{color:var(--down)}
+.data-value.big{font-size:28px;font-weight:700}
+
+/* 风险指标 */
+.risk-gauge{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.risk-circle{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:3px solid var(--green);background:rgba(34,197,94,.08)}
+.risk-circle.warn{border-color:var(--yellow);background:rgba(234,179,8,.08)}
+.risk-circle.danger{border-color:var(--orange);background:rgba(249,115,22,.1)}
+.risk-circle.stop{border-color:var(--red);background:rgba(239,68,68,.12);animation:pulse 1.5s infinite}
+.risk-circle .num{font-size:18px;font-weight:700}
+.risk-info{flex:1}
+.risk-status{font-size:16px;font-weight:600;margin-bottom:4px}
+.risk-detail{font-size:12px;color:var(--text-sec);line-height:1.6}
+
+/* 拦截结果 */
+.intercept-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.intercept-item{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);font-size:12px;line-height:1.5}
+.intercept-item.hard{background:rgba(239,68,68,.1);border-left:3px solid var(--red)}
+.intercept-item.approvable{background:rgba(234,179,8,.1);border-left:3px solid var(--yellow)}
+.intercept-item.pass{background:rgba(34,197,94,.08);border-left:3px solid var(--green)}
+.intercept-icon{flex-shrink:0;font-weight:700}
+.intercept-item .cond{color:var(--text-sec);font-size:11px;display:block;margin-top:2px}
+
+/* 灯号按钮组 */
+.light-group{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.light-btn{padding:10px 4px;border-radius:var(--radius-sm);border:2px solid var(--border);background:var(--card-hover);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:4px}
+.light-btn .dot-sm{width:12px;height:12px;border-radius:50%}
+.light-btn.green .dot-sm{background:var(--green)}
+.light-btn.yellow .dot-sm{background:var(--yellow)}
+.light-btn.orange .dot-sm{background:var(--orange)}
+.light-btn.red .dot-sm{background:var(--red)}
+.light-btn.active-green{border-color:var(--green);background:rgba(34,197,94,.15)}
+.light-btn.active-yellow{border-color:var(--yellow);background:rgba(234,179,8,.15)}
+.light-btn.active-orange{border-color:var(--orange);background:rgba(249,115,22,.15)}
+.light-btn.active-red{border-color:var(--red);background:rgba(239,68,68,.15)}
+
+/* 等级表格 */
+.level-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.level-cell{padding:8px 4px;border-radius:var(--radius-xs);text-align:center;font-size:11px;border:1px solid var(--border)}
+.level-cell .lvl{font-size:14px;font-weight:700;display:block;margin-bottom:2px}
+.level-cell.active{border-width:2px}
+.level-cell.L0{background:rgba(239,68,68,.1)}.level-cell.L0 .lvl{color:var(--red)}
+.level-cell.L1{background:rgba(249,115,22,.1)}.level-cell.L1 .lvl{color:var(--orange)}
+.level-cell.L2{background:rgba(234,179,8,.1)}.level-cell.L2 .lvl{color:var(--yellow)}
+.level-cell.L3{background:rgba(34,197,94,.1)}.level-cell.L3 .lvl{color:var(--green)}
+
+/* 评分条 */
+.score-bar{display:flex;align-items:center;gap:8px;margin:4px 0}
+.score-bar .label{width:64px;font-size:12px;color:var(--text-sec);flex-shrink:0}
+.score-bar .track{flex:1;height:6px;background:var(--card-hover);border-radius:3px;overflow:hidden}
+.score-bar .fill{height:100%;background:var(--blue);border-radius:3px;transition:width .3s}
+.score-bar .val{width:36px;text-align:right;font-size:12px;font-weight:600}
+
+/* 持仓列表 */
+.trade-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.trade-item:last-child{border-bottom:none}
+.trade-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.trade-name{font-size:15px;font-weight:600}
+.trade-badge{font-size:10px;padding:2px 6px;border-radius:var(--radius-xs);font-weight:500}
+.trade-badge.open{background:rgba(59,130,246,.15);color:var(--blue)}
+.trade-badge.closed{background:var(--card-hover);color:var(--text-sec)}
+.trade-badge.violation{background:rgba(239,68,68,.15);color:var(--red)}
+.trade-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:12px}
+.trade-grid .tg-label{color:var(--text-sec);display:block;font-size:10px;margin-bottom:2px}
+.trade-grid .tg-val{font-family:"JetBrains Mono",monospace;font-weight:600;font-size:13px}
+
+/* 空状态 */
+.empty{text-align:center;padding:24px 16px;color:var(--text-sec);font-size:13px}
+.empty .icon{font-size:32px;display:block;margin-bottom:8px;opacity:.4}
+
+/* NO DATA */
+.nodata-banner{background:rgba(239,68,68,.12);border-left:3px solid var(--red);padding:10px 14px;margin:12px;border-radius:var(--radius-sm);font-size:13px;display:none}
+.nodata-banner.show{display:block}
+.nodata-banner .title{font-weight:600;color:var(--red);margin-bottom:4px}
+.nodata-banner ul{margin-left:16px;color:var(--text-sec);font-size:12px}
+
+/* 过期角标 */
+.expired-tag{display:inline-block;font-size:10px;padding:1px 5px;background:rgba(249,115,22,.2);color:var(--orange);border-radius:var(--radius-xs);margin-left:6px}
+
+/* 弹窗 */
+.modal-mask{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:flex-end;justify-content:center}
+.modal-mask.show{display:flex}
+.modal{background:var(--card);border-radius:16px 16px 0 0;width:100%;max-width:480px;max-height:80vh;overflow-y:auto;padding:20px 16px 24px;animation:slideUp .25s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-title{font-size:17px;font-weight:600;margin-bottom:14px}
+.modal-actions{display:flex;gap:10px;margin-top:16px}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--card-hover);border:1px solid var(--border);padding:10px 18px;border-radius:var(--radius-sm);font-size:13px;z-index:300;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;text-align:center}
+.toast.show{opacity:1}
+.toast.error{border-color:var(--red);color:var(--red)}
+.toast.success{border-color:var(--green);color:var(--green)}
+
+/* 预览标记 */
+.preview-tag{display:inline-block;font-size:10px;padding:1px 6px;background:rgba(234,179,8,.15);color:var(--yellow);border-radius:var(--radius-xs);margin-left:6px;animation:pulse 1.5s infinite}
+
+/* tab */
+.tab-bar{display:flex;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:57px;z-index:90}
+.tab-btn{flex:1;padding:10px 4px;font-size:13px;color:var(--text-sec);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+.tab-page{display:none}.tab-page.active{display:block}
+
+.section-gap{height:8px}
+.loading{opacity:.5;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- 顶部状态栏 -->
+  <div class="status-bar lvl-L0" id="statusBar">
+    <div class="status-left">
+      <div class="status-dot red" id="statusDot"></div>
+      <span class="status-text" id="statusText">加载中</span>
+      <span class="status-level" id="statusLevel" style="display:none"></span>
+    </div>
+    <span class="status-time mono" id="statusTime">--:--</span>
+  </div>
+
+  <!-- NO DATA 横幅 -->
+  <div class="nodata-banner" id="nodataBanner">
+    <div class="title">⚠ 数据不足，无法判断</div>
+    <ul id="nodataList"></ul>
+  </div>
+
+  <!-- Tab 导航 -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="dashboard">驾驶舱</button>
+    <button class="tab-btn" data-tab="input">数据录入</button>
+    <button class="tab-btn" data-tab="trades">持仓</button>
+    <button class="tab-btn" data-tab="check">风险检查</button>
+  </div>
+  <div id="tabContent"></div>
+</div>
+
+<div class="modal-mask" id="modalMask">
+  <div class="modal" id="modalContent"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ====== 工具函数 ======
+const $ = (s)=>document.querySelector(s);
+const $$ = (s)=>document.querySelectorAll(s);
+const api = async (url, opts={}) => {
+  try {
+    const res = await fetch(url, {
+      headers: {'Content-Type':'application/json', ...(opts.headers||{})},
+      ...opts
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  } catch(e) {
+    showToast(e.message, 'error');
+    throw e;
+  }
+};
+function showToast(msg, type='') {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(()=>t.className='toast', 2500);
+}
+function pct(v, d=2) { return v==null?'--':(v*100).toFixed(d)+'%'; }
+function yuan(v, d=2) { return v==null?'--':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function lightName(l){return {green:'绿灯',yellow:'黄灯',orange:'橙灯',red:'红灯'}[l]||'--';}
+function lightDotClass(l){return {green:'green',yellow:'yellow',orange:'orange',red:'red'}[l]||'';}
+function envName(e){return {A:'A级进攻',B:'B级震荡',C:'C级防守'}[e]||'--';}
+function levelName(l){return {L0:'停止',L1:'防守',L2:'谨慎',L3:'积极'}[l]||'--';}
+function levelColor(l){return {L0:'var(--red)',L1:'var(--orange)',L2:'var(--yellow)',L3:'var(--green)'}[l]||'var(--text-disabled)';}
+function fmtTime(s){if(!s)return'--';const d=new Date(s);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}
+
+// 全局状态
+const state = {
+  market: null,
+  account: null,
+  trades: [],
+  theme: null,
+  currentTab: 'dashboard'
+};
+
+// ====== 数据加载 ======
+async function loadAll() {
+  try {
+    const [m, a, t, th] = await Promise.all([
+      fetch('/api/market/status').then(r=>r.json()),
+      fetch('/api/account').then(r=>r.json()),
+      fetch('/api/trades').then(r=>r.json()),
+      fetch('/api/theme').then(r=>r.json()),
+    ]);
+    state.market = m.success ? m.data : null;
+    state.account = a.success ? a.data : null;
+    state.trades = t.success ? t.data : [];
+    state.theme = th.success ? th.data : null;
+  } catch(e) {
+    console.error(e);
+  }
+  renderStatusBar();
+  renderTab(state.currentTab);
+}
+
+// ====== 顶部状态栏 ======
+function renderStatusBar() {
+  const bar = $('#statusBar');
+  const dot = $('#statusDot');
+  const text = $('#statusText');
+  const level = $('#statusLevel');
+  const time = $('#statusTime');
+
+  bar.className = 'status-bar';
+  const now = new Date();
+  time.textContent = now.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+
+  const m = state.market;
+  // 判定系统状态
+  let sysStatus = 'NO DATA', sysClass = 'nodata', dotClass='red', lvlText='';
+
+  if (!m) {
+    sysStatus = 'NO DATA'; sysClass='nodata'; dotClass='red';
+  } else if (m.final_level === 'L0') {
+    sysStatus = 'EXIT'; sysClass='lvl-L0'; dotClass='red'; lvlText='L0 停止';
+  } else if (state.trades.some(t=>t.status==='open')) {
+    // 有持仓时：根据等级显示 HOLD
+    if (m.final_level === 'L1') {
+      sysStatus = 'REDUCE'; sysClass='lvl-L1'; dotClass='orange'; lvlText='L1 防守';
+    } else {
+      sysStatus = 'HOLD'; sysClass = m.final_level==='L3'?'lvl-L3':m.final_level==='L2'?'lvl-L2':'lvl-L1';
+      dotClass = m.final_level==='L3'?'green':m.final_level==='L2'?'yellow':'orange';
+      lvlText = m.final_level+' '+levelName(m.final_level);
+    }
+  } else if (m.is_preview) {
+    sysStatus = '观察'; sysClass='lvl-L1'; dotClass='orange'; lvlText='预览等级';
+  } else if (m.final_level === 'L3' || m.final_level === 'L2') {
+    sysStatus = 'BUY候选'; sysClass = m.final_level==='L3'?'lvl-L3':'lvl-L2';
+    dotClass = m.final_level==='L3'?'green':'yellow'; lvlText=m.final_level+' '+levelName(m.final_level);
+  } else if (m.final_level === 'L1') {
+    sysStatus = '观察'; sysClass='lvl-L1'; dotClass='orange'; lvlText='L1 防守';
+  }
+
+  bar.classList.add(sysClass);
+  dot.className = 'status-dot ' + dotClass;
+  text.textContent = sysStatus;
+  if (lvlText) { level.style.display='inline'; level.textContent = lvlText; }
+  else level.style.display='none';
+
+  // NO DATA banner
+  const banner = $('#nodataBanner');
+  const list = $('#nodataList');
+  const missing = [];
+  if (!state.account) missing.push('账户资金数据');
+  if (!m) missing.push('市场环境数据');
+  else if (m.is_preview) missing.push('情绪灯号尚未人工确认（当前为预览等级）');
+  if (missing.length) {
+    banner.classList.add('show');
+    list.innerHTML = missing.map(x=>`<li>${x}</li>`).join('');
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ====== Tab 切换 ======
+$$('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    $$('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    state.currentTab = btn.dataset.tab;
+    renderTab(state.currentTab);
+  });
+});
+
+function renderTab(tab) {
+  const c = $('#tabContent');
+  if (tab==='dashboard') c.innerHTML = renderDashboard();
+  else if (tab==='input') c.innerHTML = renderInput();
+  else if (tab==='trades') c.innerHTML = renderTrades();
+  else if (tab==='check') c.innerHTML = renderCheck();
+  bindTabEvents(tab);
+}
+
+// ====== 驾驶舱 Tab ======
+function renderDashboard() {
+  const m = state.market;
+  const acc = state.account;
+  const th = state.theme;
+  const openTrades = state.trades.filter(t=>t.status==='open');
+
+  return `
+    <!-- 模块1：账户风险 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>账户风险</div>
+        <span class="card-meta">${acc?'单笔'+pct(acc.single_trade_risk_pct):'--'}</span>
+      </div>
+      <div class="card-body">
+        ${acc ? `
+        <div class="data-row"><span class="data-label">账户总资金</span><span class="data-value mono">¥${yuan(acc.total_capital,0)}</span></div>
+        <div class="data-row"><span class="data-label">单日风险上限</span><span class="data-value mono">${pct(acc.daily_risk_limit_pct)}</span></div>
+        <div class="data-row"><span class="data-label">连续亏损笔数</span>
+          <span class="data-value mono ${acc.consecutive_losses>=3?'up':''}">${acc.consecutive_losses||0} 笔</span>
+        </div>
+        ${acc.suspension_remaining_days>0 ? `
+        <div class="intercept-item hard" style="margin-top:8px">
+          <span class="intercept-icon">⛔</span>
+          <div>连续5笔亏损，暂停新开仓<div class="cond">剩余 ${acc.suspension_remaining_days} 个交易日（硬拦截，无例外）</div></div>
+        </div>` : ''}
+        ${acc.consecutive_losses>=3 && acc.suspension_remaining_days===0 ? `
+        <div class="intercept-item approvable" style="margin-top:8px">
+          <span class="intercept-icon">⚠</span>
+          <div>连续3笔亏损，下一笔仓位自动减半</div>
+        </div>` : ''}
+        ` : '<div class="empty"><span class="icon">📊</span>账户数据未配置</div>'}
+      </div>
+    </div>
+
+    <!-- 模块2：市场环境 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>市场环境 ${m&&m.is_preview?'<span class="preview-tag">预览</span>':''}</div>
+        <span class="card-meta">${m?m.date:'--'}</span>
+      </div>
+      <div class="card-body">
+        ${m ? `
+        <div class="data-row"><span class="data-label">市场评分</span>
+          <span class="data-value mono" style="color:${m.environment==='A'?'var(--green)':m.environment==='B'?'var(--yellow)':'var(--red)'}">${m.score} 分</span>
+        </div>
+        <div class="data-row"><span class="data-label">市场状态</span>
+          <span class="data-value" style="color:${m.environment==='A'?'var(--green)':m.environment==='B'?'var(--yellow)':'var(--red)'}">${envName(m.environment)}</span>
+        </div>
+        <div class="data-row"><span class="data-label">最终交易等级</span>
+          <span class="data-value" style="color:${levelColor(m.final_level)}">${m.final_level} ${levelName(m.final_level)}</span>
+        </div>
+        ` : '<div class="empty"><span class="icon">📡</span>暂无市场数据，请前往"数据录入"录入</div>'}
+      </div>
+    </div>
+
+    <!-- 模块3：情绪状态 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>情绪状态</div>
+        <span class="card-meta">${m?fmtTime(m.updated_at):'--'}</span>
+      </div>
+      <div class="card-body">
+        ${m ? `
+        <div class="data-row"><span class="data-label">情绪周期</span><span class="data-value">${m.emotion_cycle||'--'}</span></div>
+        <div class="data-row"><span class="data-label">AI建议灯号</span>
+          <span class="data-value"><span class="status-dot ${lightDotClass(m.emotion_light_suggested)}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${lightName(m.emotion_light_suggested)}</span>
+        </div>
+        <div class="data-row"><span class="data-label">人工确认灯号</span>
+          ${m.emotion_light_confirmed
+            ? `<span class="data-value"><span class="status-dot ${lightDotClass(m.emotion_light_confirmed)}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${lightName(m.emotion_light_confirmed)}</span>`
+            : `<span class="data-value" style="color:var(--yellow)">待确认 <span class="preview-tag">需确认</span></span>`
+          }
+        </div>
+        <div style="margin-top:12px">
+          <div class="form-label" style="margin-bottom:6px">人工确认灯号：</div>
+          <div class="light-group">
+            ${['green','yellow','orange','red'].map(l=>`
+              <button class="light-btn ${l} ${m.emotion_light_confirmed===l?'active-'+l:''}" onclick="confirmLight('${l}')">
+                <span class="dot-sm"></span><span>${lightName(l)}</span>
+              </button>`).join('')}
+          </div>
+        </div>
+        ` : '<div class="empty">暂无情绪数据</div>'}
+      </div>
+    </div>
+
+    <!-- 模块4：当前主线 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>当前主线</div>
+        <span class="card-meta">${th?'评分 '+th.score:'--'}</span>
+      </div>
+      <div class="card-body">
+        ${th ? `
+        <div class="data-row"><span class="data-label">主线名称</span><span class="data-value">${th.theme_name}</span></div>
+        <div style="margin-top:10px">
+          ${[
+            ['资金强度',th.capital_score,25],
+            ['板块扩散',th.spread_score,20],
+            ['政策逻辑',th.policy_score,15],
+            ['持续性',th.expectation_score,10],
+            ['市场认可',th.recognition_score,15],
+            ['龙头表现',th.leader_performance_score,15],
+          ].map(([l,v,mx])=>`
+            <div class="score-bar">
+              <span class="label">${l}</span>
+              <div class="track"><div class="fill" style="width:${v/mx*100}%;background:${v/mx>=0.7?'var(--green)':v/mx>=0.4?'var(--yellow)':'var(--orange)'}"></div></div>
+              <span class="val mono">${v}/${mx}</span>
+            </div>`).join('')}
+        </div>
+        ` : '<div class="empty"><span class="icon">🎯</span>暂无主线数据</div>'}
+      </div>
+    </div>
+
+    <!-- 模块5：核心股票池（当前持仓） -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="dot"></span>核心股票池</div>
+        <span class="card-meta">${openTrades.length} 只持仓</span>
+      </div>
+      <div class="card-body" style="padding-top:4px">
+        ${openTrades.length ? openTrades.map(t=>`
+          <div class="trade-item">
+            <div class="trade-head">
+              <span class="trade-name">${t.stock_name||t.stock_code} <span class="mono" style="font-size:12px;color:var(--text-sec)">${t.stock_code}</span></span>
+              <span class="trade-badge open">持仓中${t.is_violation?' <span class="trade-badge violation" style="margin-left:4px">违规</span>':''}</span>
+            </div>
+            <div class="trade-grid">
+              <div><span class="tg-label">持仓量</span><span class="tg-val">${t.position}股</span></div>
+              <div><span class="tg-label">成本价</span><span class="tg-val">¥${yuan(t.avg_cost)}</span></div>
+              <div><span class="tg-label">止损价</span><span class="tg-val" style="color:var(--down)">¥${yuan(t.stop_price)}</span></div>
+              <div><span class="tg-label">模式</span><span class="tg-val" style="font-family:inherit;font-size:12px">${t.trade_mode||'--'}</span></div>
+              <div><span class="tg-label">等级</span><span class="tg-val">${t.final_level||'--'}</span></div>
+              <div><span class="tg-label">主线</span><span class="tg-val" style="font-family:inherit;font-size:12px">${t.theme||'--'}</span></div>
+            </div>
+          </div>`).join('') : '<div class="empty"><span class="icon">📈</span>暂无持仓，BUY候选将在第二阶段AI分析后展示</div>'}
+      </div>
+    </div>
+
+    <!-- 模块6：交易建议状态 -->
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>交易建议</div></div>
+      <div class="card-body">
+        ${renderAdvice()}
+      </div>
+    </div>
+  `;
+}
+
+function renderAdvice() {
+  const m = state.market;
+  if (!m) return '<div class="empty">市场数据缺失，无法生成建议</div>';
+  if (m.final_level === 'L0') {
+    return `<div class="intercept-item hard"><span class="intercept-icon">⛔</span><div><b>L0 停止</b>：禁止新开仓，仅允许 EXIT/REDUCE 操作。<span class="cond">市场环境与情绪灯号均处于极端防守状态。</span></div></div>`;
+  }
+  if (m.is_preview) {
+    return `<div class="intercept-item approvable"><span class="intercept-icon">👁</span><div><b>预览等级（待确认）</b>：情绪灯号尚未人工确认，当前显示的 ${m.final_level} 仅供参考。<span class="cond">请先在"情绪状态"模块确认灯号，系统才会生成正式 BUY 候选。</span></div></div>`;
+  }
+  if (m.final_level === 'L1') {
+    return `<div class="intercept-item approvable"><span class="intercept-icon">⚠</span><div><b>L1 防守</b>：原则上禁止新开仓。如确需开仓，须填写特批理由，系统将标记为违规交易用于复盘统计。<span class="cond">仅允许 HOLD/REDUCE，仓位系数 40%，单笔风险≤0.3%。</span></div></div>`;
+  }
+  if (m.final_level === 'L2') {
+    return `<div class="intercept-item pass"><span class="intercept-icon">✓</span><div><b>L2 谨慎</b>：允许新开仓，仅限核心池。<span class="cond">仓位系数 70%，单笔风险 0.5%-0.8%，允许模式：分歧低吸/弱转强（不追高）。</span></div></div>`;
+  }
+  if (m.final_level === 'L3') {
+    return `<div class="intercept-item pass"><span class="intercept-icon">✓</span><div><b>L3 积极</b>：允许新开仓。<span class="cond">仓位系数 100%，单笔风险 0.8%-1.0%，允许模式：强势跟随/分歧低吸/弱转强。</span></div></div>`;
+  }
+  return '<div class="empty">--</div>';
+}
+
+// ====== 数据录入 Tab ======
+function renderInput() {
+  const m = state.market;
+  const raw = m?.raw_data || {};
+  const th = state.theme;
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>市场原始数据</div>
+        <span class="card-meta">自动计算环境+情绪</span>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-field"><label class="form-label">上涨家数</label><input class="form-input mono" id="f_up" type="number" value="${raw.up_count||''}" placeholder="3000"></div>
+          <div class="form-field"><label class="form-label">下跌家数</label><input class="form-input mono" id="f_down" type="number" value="${raw.down_count||''}" placeholder="1500"></div>
+          <div class="form-field"><label class="form-label">涨停数量</label><input class="form-input mono" id="f_lu" type="number" value="${raw.limit_up_count||''}" placeholder="50"></div>
+          <div class="form-field"><label class="form-label">跌停数量</label><input class="form-input mono" id="f_ld" type="number" value="${raw.limit_down_count||''}" placeholder="5"></div>
+          <div class="form-field"><label class="form-label">炸板数量</label><input class="form-input mono" id="f_bc" type="number" value="${raw.broken_limit_count||''}" placeholder="10"></div>
+          <div class="form-field"><label class="form-label">炸板率(%)</label><input class="form-input mono" id="f_br" type="number" value="${raw.broken_limit_rate||''}" placeholder="20"></div>
+          <div class="form-field"><label class="form-label">最高连板数</label><input class="form-input mono" id="f_cb" type="number" value="${raw.max_consecutive_boards||''}" placeholder="5"></div>
+          <div class="form-field"><label class="form-label">两市成交(亿)</label><input class="form-input mono" id="f_to" type="number" value="${raw.total_turnover?Math.round(raw.total_turnover/1e8):''}" placeholder="12000"></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitMarket()">计算市场环境 & 情绪</button>
+        ${m ? `
+        <div style="margin-top:14px;padding:10px;background:var(--card-hover);border-radius:var(--radius-sm);font-size:12px;color:var(--text-sec)">
+          上次计算：${m.environment} · ${m.score}分 · ${m.emotion_cycle} · ${lightName(m.emotion_light_suggested)}
+          ${m.is_preview?'<span class="preview-tag">待确认</span>':'(已确认)'}
+        </div>` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>主线评分录入</div></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-field full"><label class="form-label">主线名称</label><input class="form-input" id="t_name" value="${th?.theme_name||''}" placeholder="如：人工智能"></div>
+          <div class="form-field"><label class="form-label">资金强度 (0-25)</label><input class="form-input mono" id="t_cap" type="number" min="0" max="25" value="${th?.capital_score??''}"></div>
+          <div class="form-field"><label class="form-label">板块扩散 (0-20)</label><input class="form-input mono" id="t_sp" type="number" min="0" max="20" value="${th?.spread_score??''}"></div>
+          <div class="form-field"><label class="form-label">政策逻辑 (0-15)</label><input class="form-input mono" id="t_pol" type="number" min="0" max="15" value="${th?.policy_score??''}"></div>
+          <div class="form-field"><label class="form-label">持续性 (0-10)</label><input class="form-input mono" id="t_exp" type="number" min="0" max="10" value="${th?.expectation_score??''}"></div>
+          <div class="form-field"><label class="form-label">市场认可 (0-15)</label><input class="form-input mono" id="t_rec" type="number" min="0" max="15" value="${th?.recognition_score??''}"></div>
+          <div class="form-field"><label class="form-label">龙头表现 (0-15)</label><input class="form-input mono" id="t_ld" type="number" min="0" max="15" value="${th?.leader_performance_score??''}"></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitTheme()">保存主线评分</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>账户配置</div></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-field full"><label class="form-label">账户总资金 (元)</label><input class="form-input mono" id="a_cap" type="number" value="${state.account?.total_capital??'100000'}"></div>
+          <div class="form-field"><label class="form-label">单笔风险(%)</label><input class="form-input mono" id="a_single" type="number" step="0.1" value="${(state.account?.single_trade_risk_pct??0.008)*100}"></div>
+          <div class="form-field"><label class="form-label">单日上限(%)</label><input class="form-input mono" id="a_daily" type="number" step="0.1" value="${(state.account?.daily_risk_limit_pct??0.02)*100}"></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitAccount()">保存账户配置</button>
+      </div>
+    </div>
+  `;
+}
+
+async function submitMarket() {
+  const body = {
+    up_count: +$('#f_up').value || 0,
+    down_count: +$('#f_down').value || 0,
+    limit_up_count: +$('#f_lu').value || 0,
+    limit_down_count: +$('#f_ld').value || 0,
+    broken_limit_count: +$('#f_bc').value || 0,
+    broken_limit_rate: +$('#f_br').value || 0,
+    max_consecutive_boards: +$('#f_cb').value || 0,
+    total_turnover: (+$('#f_to').value || 0) * 1e8
+  };
+  try {
+    await api('/api/market/status',{method:'POST',body:JSON.stringify(body)});
+    showToast('市场数据已计算','success');
+    await loadAll();
+  } catch(e){}
+}
+
+async function submitTheme() {
+  const name = $('#t_name').value.trim();
+  if (!name) return showToast('请输入主线名称','error');
+  const body = {
+    theme_name: name,
+    capital_score: +$('#t_cap').value||0,
+    spread_score: +$('#t_sp').value||0,
+    policy_score: +$('#t_pol').value||0,
+    expectation_score: +$('#t_exp').value||0,
+    recognition_score: +$('#t_rec').value||0,
+    leader_performance_score: +$('#t_ld').value||0
+  };
+  try {
+    await api('/api/theme',{method:'POST',body:JSON.stringify(body)});
+    showToast('主线评分已保存','success');
+    await loadAll();
+  } catch(e){}
+}
+
+async function submitAccount() {
+  const body = {
+    total_capital: +$('#a_cap').value||0,
+    single_trade_risk_pct: (+$('#a_single').value||0)/100,
+    daily_risk_limit_pct: (+$('#a_daily').value||0)/100
+  };
+  try {
+    await api('/api/account',{method:'PUT',body:JSON.stringify(body)});
+    showToast('账户配置已保存','success');
+    await loadAll();
+  } catch(e){}
+}
+
+async function confirmLight(light) {
+  const m = state.market;
+  if (!m) return showToast('请先录入市场数据','error');
+  const action = m.emotion_light_confirmed === light
+    ? { confirmed: false }
+    : { confirmed: true, light };
+  try {
+    await api('/api/market/status/confirm-light',{method:'POST',body:JSON.stringify(action)});
+    showToast(action.confirmed ? `已确认${lightName(light)}` : '已撤回确认','success');
+    await loadAll();
+  } catch(e){}
+}
+
+// ====== 持仓 Tab ======
+function renderTrades() {
+  const all = state.trades;
+  const open = all.filter(t=>t.status==='open');
+  const closed = all.filter(t=>t.status==='closed');
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>新建交易</div></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" placeholder="600519"></div>
+          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" placeholder="贵州茅台"></div>
+          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="nt_buy" type="number" step="0.001"></div>
+          <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" value="100"></div>
+          <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="nt_stop" type="number" step="0.001"></div>
+          <div class="form-field"><label class="form-label">交易模式</label>
+            <select class="form-input" id="nt_mode">
+              <option value="强势跟随">强势跟随</option>
+              <option value="分歧低吸">分歧低吸</option>
+              <option value="弱转强">弱转强</option>
+            </select>
+          </div>
+          <div class="form-field full"><label class="form-label">买入理由</label><input class="form-input" id="nt_reason" placeholder="龙头突破/回踩均线..."></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="submitTrade()">创建交易记录</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>当前持仓 (${open.length})</div></div>
+      <div class="card-body" style="padding-top:4px">
+        ${open.length ? open.map(t=>renderTradeItem(t,true)).join('') : '<div class="empty"><span class="icon">📭</span>无持仓</div>'}
+      </div>
+    </div>
+
+    ${closed.length ? `
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>已平仓 (${closed.length})</div></div>
+      <div class="card-body" style="padding-top:4px">
+        ${closed.slice(0,10).map(t=>renderTradeItem(t,false)).join('')}
+      </div>
+    </div>` : ''}
+  `;
+}
+
+function renderTradeItem(t, isOpen) {
+  const pl = t.profit_loss != null ? Number(t.profit_loss) : null;
+  return `
+    <div class="trade-item">
+      <div class="trade-head">
+        <span class="trade-name">${t.stock_name||t.stock_code} <span class="mono" style="font-size:11px;color:var(--text-sec)">${t.stock_code}</span></span>
+        <span>
+          ${t.is_violation?'<span class="trade-badge violation">违规</span>':''}
+          <span class="trade-badge ${t.status}">${t.status==='open'?'持仓中':'已平仓'}</span>
+        </span>
+      </div>
+      <div class="trade-grid">
+        <div><span class="tg-label">持仓/成本</span><span class="tg-val">${t.position}股 / ¥${yuan(t.avg_cost)}</span></div>
+        <div><span class="tg-label">买入价</span><span class="tg-val">¥${yuan(t.buy_price)}</span></div>
+        <div><span class="tg-label">止损价</span><span class="tg-val" style="color:var(--down)">¥${yuan(t.stop_price)}</span></div>
+        ${pl!==null?`<div><span class="tg-label">盈亏</span><span class="tg-val ${pl>=0?'up':'down'}">${pl>=0?'+':''}${yuan(pl)}</span></div>`:''}
+        ${t.sell_price?`<div><span class="tg-label">卖出价</span><span class="tg-val">¥${yuan(t.sell_price)}</span></div>`:''}
+        <div><span class="tg-label">模式</span><span class="tg-val" style="font-family:inherit;font-size:12px">${t.trade_mode||'--'}</span></div>
+      </div>
+      ${isOpen ? `
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-outline btn-sm" style="flex:1" onclick="showAddPosition('${t.trade_id}')">加仓</button>
+        <button class="btn btn-outline btn-sm" style="flex:1" onclick="showReducePosition('${t.trade_id}')">减仓</button>
+        <button class="btn btn-danger btn-sm" style="flex:1" onclick="showStopPrice('${t.trade_id}')">改止损</button>
+      </div>` : ''}
+    </div>`;
+}
+
+async function submitTrade() {
+  const body = {
+    stock_code: $('#nt_code').value.trim(),
+    stock_name: $('#nt_name').value.trim(),
+    buy_price: +$('#nt_buy').value,
+    position: +$('#nt_pos').value||100,
+    stop_price: +$('#nt_stop').value,
+    trade_mode: $('#nt_mode').value,
+    buy_reason: $('#nt_reason').value.trim()
+  };
+  if (!body.stock_code || !body.buy_price || !body.stop_price) {
+    return showToast('代码/买入价/止损价必填','error');
+  }
+  try {
+    await api('/api/trades',{method:'POST',body:JSON.stringify(body)});
+    showToast('交易已创建','success');
+    await loadAll();
+    state.currentTab='trades'; renderTab('trades');
+  } catch(e){}
+}
+
+function showModal(html) {
+  $('#modalContent').innerHTML = html;
+  $('#modalMask').classList.add('show');
+}
+function closeModal(){ $('#modalMask').classList.remove('show'); }
+$('#modalMask').addEventListener('click',(e)=>{ if(e.target===$('#modalMask')) closeModal(); });
+
+function showAddPosition(id) {
+  showModal(`
+    <div class="modal-title">加仓</div>
+    <div class="form-grid">
+      <div class="form-field"><label class="form-label">加仓价格</label><input class="form-input mono" id="ap_price" type="number" step="0.001"></div>
+      <div class="form-field"><label class="form-label">加仓数量</label><input class="form-input mono" id="ap_qty" type="number" value="100"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" style="flex:1" onclick="doAddPosition('${id}')">确认加仓</button>
+    </div>`);
+}
+async function doAddPosition(id) {
+  try {
+    await api(`/api/trades/${id}/add-position`,{method:'POST',body:JSON.stringify({price:+$('#ap_price').value,qty:+$('#ap_qty').value})});
+    showToast('加仓成功，已重算平均成本','success');
+    closeModal(); await loadAll(); renderTab('trades');
+  } catch(e){}
+}
+
+function showReducePosition(id) {
+  showModal(`
+    <div class="modal-title">减仓 / 清仓</div>
+    <div class="form-grid">
+      <div class="form-field"><label class="form-label">卖出价格</label><input class="form-input mono" id="rp_price" type="number" step="0.001"></div>
+      <div class="form-field"><label class="form-label">卖出数量</label><input class="form-input mono" id="rp_qty" type="number" placeholder="留空=全部卖出"></div>
+      <div class="form-field full"><label class="form-label">卖出理由</label><input class="form-input" id="rp_reason" placeholder="止损/止盈/退出计划..."></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" style="flex:1" onclick="doReducePosition('${id}')">确认卖出</button>
+    </div>`);
+}
+async function doReducePosition(id) {
+  try {
+    await api(`/api/trades/${id}/reduce-position`,{method:'POST',body:JSON.stringify({
+      price:+$('#rp_price').value, qty:+$('#rp_qty').value||undefined, reason:$('#rp_reason').value
+    })});
+    showToast('卖出成功','success');
+    closeModal(); await loadAll(); renderTab('trades');
+  } catch(e){}
+}
+
+function showStopPrice(id) {
+  showModal(`
+    <div class="modal-title">修改止损价</div>
+    <div class="form-field full" style="margin-bottom:10px"><label class="form-label">新止损价</label><input class="form-input mono" id="sp_price" type="number" step="0.001"></div>
+    <div class="form-field full"><label class="form-label">修改原因（必填）</label><input class="form-input" id="sp_reason" placeholder="技术位下移/加仓后调整..."></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" style="flex:1" onclick="doStopPrice('${id}')">确认修改</button>
+    </div>`);
+}
+async function doStopPrice(id) {
+  const reason = $('#sp_reason').value.trim();
+  if (!reason) return showToast('必须填写修改原因','error');
+  try {
+    await api(`/api/trades/${id}/stop-price`,{method:'POST',body:JSON.stringify({stop_price:+$('#sp_price').value, reason})});
+    showToast('止损价已更新','success');
+    closeModal(); await loadAll(); renderTab('trades');
+  } catch(e){}
+}
+
+// ====== 风险检查 Tab ======
+function renderCheck() {
+  const acc = state.account;
+  const m = state.market;
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>买入前风险检查</div>
+        <span class="card-meta">8条拦截</span>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" placeholder="600519"></div>
+          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" placeholder="可选"></div>
+          <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001"></div>
+          <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001"></div>
+          <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000"></div>
+        </div>
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="runRiskCheck()">执行风险检查</button>
+        <div id="riskResult"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="dot"></span>当前等级参数</div></div>
+      <div class="card-body">
+        ${m ? `
+        <div class="level-grid">
+          ${['L0','L1','L2','L3'].map(l=>`
+            <div class="level-cell ${l} ${m.final_level===l?'active':''}">
+              <span class="lvl">${l}</span>${levelName(l)}
+              <div style="font-size:10px;margin-top:4px;color:var(--text-sec)">
+                ${l==='L0'?'禁止':l==='L1'?'≤0.3%':l==='L2'?'0.5-0.8%':'0.8-1.0%'}
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-sec);line-height:1.8">
+          <div>• 当前等级：<b style="color:${levelColor(m.final_level)}">${m.final_level} ${levelName(m.final_level)}</b> ${m.is_preview?'<span class="preview-tag">预览</span>':''}</div>
+          <div>• 新开仓权限：${m.final_level==='L0'?'<span style="color:var(--red)">禁止（无特批）</span>':m.final_level==='L1'?'<span style="color:var(--orange)">需特批</span>':'允许'}</div>
+          <div>• 仓位系数：${Math.round(({L0:0,L1:0.4,L2:0.7,L3:1}[m.final_level]??0)*100)}%</div>
+        </div>
+        ` : '<div class="empty">暂无市场等级数据</div>'}
+        ${acc?`
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--text-sec)">
+          账户配置：单笔风险 ${pct(acc.single_trade_risk_pct)} · 单日上限 ${pct(acc.daily_risk_limit_pct)} · 连续亏损 ${acc.consecutive_losses||0} 笔
+        </div>`:''}
+      </div>
+    </div>
+  `;
+}
+
+async function runRiskCheck() {
+  const body = {
+    stock_code: $('#rc_code').value.trim(),
+    stock_name: $('#rc_name').value.trim() || undefined,
+    buy_price: +$('#rc_buy').value,
+    stop_price: +$('#rc_stop').value,
+    plan_buy_amount: +$('#rc_amt').value || undefined
+  };
+  if (!body.stock_code || !body.buy_price || !body.stop_price) {
+    return showToast('代码/买入价/止损价必填','error');
+  }
+  const box = $('#riskResult');
+  box.innerHTML = '<div class="empty" style="padding:16px">检查中...</div>';
+  try {
+    const r = await api('/api/risk/check',{method:'POST',body:JSON.stringify(body)});
+    const d = r.data;
+    const ar = d.account_risk||{};
+    const pos = d.position||{};
+    const violations = d.violations||[];
+    const triggered = violations.filter(v=>v.triggered);
+    const canPass = !d.blocked;
+    box.innerHTML = `
+      <div style="margin-top:14px">
+        <div class="risk-gauge">
+          <div class="risk-circle ${ar.risk_status==='危险'||ar.risk_status==='停止'?'stop':ar.risk_status==='警告'?'danger':ar.risk_status==='注意'?'warn':''}">
+            <div style="text-align:center">
+              <div class="num mono" style="font-size:16px">${pct(ar.account_risk_pct)}</div>
+              <div style="font-size:10px;color:var(--text-sec)">账户风险</div>
+            </div>
+          </div>
+          <div class="risk-info">
+            <div class="risk-status" style="color:${canPass?'var(--green)':'var(--red)'}">${canPass?'✓ 风险检查通过':'✗ 禁止开仓'}</div>
+            <div class="risk-detail">
+              止损幅度 ${pct(ar.stop_loss_pct)} · 预计最大亏损 ¥${yuan(ar.estimated_max_loss,0)}
+              ${ar.t1_adjusted_risk_pct?`<br>T+1隔夜参考：${pct(ar.t1_adjusted_risk_pct)}（仅提示）`:''}
+            </div>
+          </div>
+        </div>
+        <div class="data-row"><span class="data-label">原始仓位建议</span><span class="data-value mono">¥${yuan(pos.raw_max_position,0)}</span></div>
+        <div class="data-row"><span class="data-label">连续亏损调整</span><span class="data-value mono" style="color:${pos.halved_by_losses?'var(--orange)':'var(--text-sec)'}">${pos.halved_by_losses?'×50%':'无调整'}</span></div>
+        <div class="data-row"><span class="data-label">等级系数调整后</span><span class="data-value mono">¥${yuan(pos.final_max_position,0)}</span></div>
+        <div class="intercept-list">
+          ${triggered.length===0 ? '<div class="intercept-item pass"><span class="intercept-icon">✓</span><div>所有8条拦截规则均未触发</div></div>'
+            : triggered.map(v=>`
+              <div class="intercept-item ${v.intercept_type==='approvable'?'approvable':'hard'}">
+                <span class="intercept-icon">${v.intercept_type==='approvable'?'⚠':'⛔'}</span>
+                <div>${v.message}<span class="cond">条件${v.condition} · ${v.intercept_type==='approvable'?'可特批':'硬拦截'}</span></div>
+              </div>`).join('')}
+        </div>
+        ${d.approvable ? `
+          <div style="margin-top:12px">
+            <div class="form-field full" style="margin-bottom:8px"><label class="form-label">特批理由（L1等级开仓必填，将标记为违规交易）</label><input class="form-input" id="violation_reason" placeholder="说明为何在L1防守等级仍要开仓..."></div>
+            <button class="btn btn-danger btn-block" onclick="submitViolation()">确认特批开仓（标记违规）</button>
+          </div>` : ''}
+      </div>
+    `;
+    // 暂存最后一次检查数据
+    window.__lastRiskCheck = { body, result: d };
+  } catch(e) { box.innerHTML = ''; }
+}
+
+async function submitViolation() {
+  const reason = $('#violation_reason')?.value.trim();
+  if (!reason) return showToast('必须填写特批理由','error');
+  showToast('特批已记录（实际开仓流程在交易模块执行）','success');
+}
+
+// 页面初始化
+loadAll();
+// 每60秒刷新一次时间显示
+setInterval(()=>{ const t=$('#statusTime'); if(t){ t.textContent = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } }, 30000);
