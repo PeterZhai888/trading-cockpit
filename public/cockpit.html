@@ -214,6 +214,18 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
 .tab-page{display:none}.tab-page.active{display:block}
 
+/* 股票代码/名称自动补全 */
+.stock-field{position:relative}
+.stock-suggest{position:absolute;top:calc(100% + 2px);left:0;right:0;background:var(--card-hover);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:200px;overflow-y:auto;z-index:50;box-shadow:0 6px 20px rgba(0,0,0,.4);display:none}
+.stock-suggest.show{display:block}
+.stock-suggest-item{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:13px}
+.stock-suggest-item:last-child{border-bottom:none}
+.stock-suggest-item:hover,.stock-suggest-item.active{background:var(--card)}
+.stock-suggest-item .ss-code{font-family:"JetBrains Mono",monospace;font-weight:600;color:var(--blue);font-size:12px;margin-right:8px}
+.stock-suggest-item .ss-name{flex:1}
+.stock-suggest-item .ss-meta{font-size:10px;color:var(--text-sec)}
+.stock-suggest-empty{padding:10px 12px;font-size:12px;color:var(--text-sec);text-align:center}
+
 .section-gap{height:8px}
 .loading{opacity:.5;pointer-events:none}
 </style>
@@ -782,8 +794,8 @@ function renderTrades() {
       <div class="card-header"><div class="card-title"><span class="dot"></span>新建交易</div></div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" placeholder="600519"></div>
-          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" placeholder="贵州茅台"></div>
+          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="nt_code" data-ac-target="nt_name" data-ac-type="code" placeholder="600519" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="nt_name" data-ac-target="nt_code" data-ac-type="name" placeholder="贵州茅台" autocomplete="off"></div>
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="nt_buy" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">持仓(股)</label><input class="form-input mono" id="nt_pos" type="number" value="100"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="nt_stop" type="number" step="0.001"></div>
@@ -947,8 +959,8 @@ function renderCheck() {
       </div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="form-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" placeholder="600519"></div>
-          <div class="form-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" placeholder="可选"></div>
+          <div class="form-field stock-field"><label class="form-label">股票代码</label><input class="form-input mono" id="rc_code" data-ac-target="rc_name" data-ac-type="code" placeholder="600519" autocomplete="off"></div>
+          <div class="form-field stock-field"><label class="form-label">股票名称</label><input class="form-input" id="rc_name" data-ac-target="rc_code" data-ac-type="name" placeholder="可选" autocomplete="off"></div>
           <div class="form-field"><label class="form-label">买入价</label><input class="form-input mono" id="rc_buy" type="number" step="0.001"></div>
           <div class="form-field"><label class="form-label">止损价</label><input class="form-input mono" id="rc_stop" type="number" step="0.001"></div>
           <div class="form-field full"><label class="form-label">计划买入金额(元，留空则按仓位自动计算)</label><input class="form-input mono" id="rc_amt" type="number" placeholder="如 20000"></div>
@@ -1053,9 +1065,121 @@ async function submitViolation() {
   showToast('特批已记录（实际开仓流程在交易模块执行）','success');
 }
 
+// ====== 股票代码/名称自动补全 ======
+let acCache = new Map();
+let acActiveIdx = -1;
+let acCurrentList = [];
+let acCurrentInput = null;
+
+function closeSuggest() {
+  document.querySelectorAll('.stock-suggest.show').forEach(b=>b.classList.remove('show'));
+  acActiveIdx = -1;
+  acCurrentList = [];
+  acCurrentInput = null;
+}
+
+function renderSuggest(input, items) {
+  let box = input.parentElement.querySelector('.stock-suggest');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'stock-suggest';
+    input.parentElement.appendChild(box);
+  }
+  acCurrentList = items;
+  acCurrentInput = input;
+  if (!items.length) {
+    box.innerHTML = '<div class="stock-suggest-empty">未找到匹配股票</div>';
+  } else {
+    box.innerHTML = items.map((s,i)=>`
+      <div class="stock-suggest-item ${i===acActiveIdx?'active':''}" data-idx="${i}">
+        <span><span class="ss-code">${s.code}</span><span class="ss-name">${s.name}</span></span>
+        <span class="ss-meta">${s.market||''} ${s.industry||''}</span>
+      </div>`).join('');
+    box.querySelectorAll('.stock-suggest-item').forEach(el=>{
+      el.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        pickStock(acCurrentList[+el.dataset.idx]);
+      });
+    });
+  }
+  box.classList.add('show');
+}
+
+function pickStock(stock) {
+  if (!acCurrentInput) return;
+  const targetId = acCurrentInput.dataset.acTarget;
+  const target = document.getElementById(targetId);
+  acCurrentInput.value = acCurrentInput.dataset.acType === 'code' ? stock.code : stock.name;
+  if (target) target.value = acCurrentInput.dataset.acType === 'code' ? stock.name : stock.code;
+  closeSuggest();
+  acCurrentInput.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
+async function searchStocks(keyword) {
+  const kw = (keyword||'').trim();
+  if (kw.length < 1) return [];
+  if (acCache.has(kw)) return acCache.get(kw);
+  try {
+    const res = await fetch('/api/stock/search?keyword=' + encodeURIComponent(kw));
+    const json = await res.json();
+    const items = json.success ? (json.data||[]) : [];
+    acCache.set(kw, items);
+    if (acCache.size > 100) acCache.clear();
+    return items;
+  } catch(e) { return []; }
+}
+
+let acTimer = null;
+function bindAutoComplete() {
+  document.querySelectorAll('input[data-ac-target]').forEach(input=>{
+    if (input.dataset.acBound === '1') return;
+    input.dataset.acBound = '1';
+    input.addEventListener('input', ()=>{
+      clearTimeout(acTimer);
+      const kw = input.value.trim();
+      if (kw.length < 1) { closeSuggest(); return; }
+      acTimer = setTimeout(async ()=>{
+        acActiveIdx = -1;
+        const items = await searchStocks(kw);
+        if (document.activeElement !== input || input.value.trim() !== kw) return;
+        renderSuggest(input, items);
+      }, 180);
+    });
+    input.addEventListener('focus', ()=>{
+      const kw = input.value.trim();
+      if (kw.length >= 1 && acCache.has(kw)) renderSuggest(input, acCache.get(kw));
+    });
+    input.addEventListener('keydown', (e)=>{
+      const box = input.parentElement.querySelector('.stock-suggest');
+      if (!box || !box.classList.contains('show')) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        acActiveIdx = Math.min(acActiveIdx+1, acCurrentList.length-1);
+        renderSuggest(input, acCurrentList);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        acActiveIdx = Math.max(acActiveIdx-1, 0);
+        renderSuggest(input, acCurrentList);
+      } else if (e.key === 'Enter') {
+        if (acActiveIdx >= 0 && acCurrentList[acActiveIdx]) {
+          e.preventDefault();
+          pickStock(acCurrentList[acActiveIdx]);
+        }
+      } else if (e.key === 'Escape') {
+        closeSuggest();
+      }
+    });
+  });
+}
+
+document.addEventListener('click', (e)=>{
+  if (!e.target.closest('.stock-field')) closeSuggest();
+});
+
 // 页面初始化
 loadAll();
-// 每60秒刷新一次时间显示
+bindAutoComplete();
+// 每30秒刷新一次时间显示
 setInterval(()=>{ const t=$('#statusTime'); if(t){ t.textContent = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); } }, 30000);
 </script>
 </body>
