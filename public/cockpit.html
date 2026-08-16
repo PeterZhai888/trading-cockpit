@@ -500,6 +500,17 @@ async function loadAll() {
       state.account = null;
     }
     state.trades = t.success ? t.data : [];
+    // 获取持仓实时行情
+    state.quotes = {};
+    if (state.trades.length) {
+      const openCodes = state.trades.filter(t=>t.status==='open').map(t=>t.stock_code).filter(Boolean);
+      if (openCodes.length) {
+        try {
+          const qr = await fetch('/api/stock/quotes?codes='+openCodes.join(',')).then(r=>r.json());
+          if (qr.success) state.quotes = qr.data || {};
+        } catch(e) { /* quotes fail silently */ }
+      }
+    }
     state.theme = th.success ? th.data : null;
     state.sectorList = sl.success ? sl.data?.sectors || [] : [];
     // 补全 sector_name（从 sectorList 查找）
@@ -1491,6 +1502,23 @@ function renderTradeItem(t, isOpen) {
         <div><span class="tg-label">买入价</span><span class="tg-val">¥${yuan(t.buy_price)}</span></div>
         <div><span class="tg-label">止损价</span><span class="tg-val" style="color:var(--down)">¥${yuan(t.stop_price)}</span></div>
         ${pl!==null?`<div><span class="tg-label">盈亏</span><span class="tg-val ${pl>=0?'up':'down'}">${pl>=0?'+':''}${yuan(pl)}</span></div>`:''}
+        ${isOpen ? (()=>{
+          const q = (state.quotes||{})[t.stock_code];
+          if (!q) return '';
+          const cur = q.price;
+          const chg = q.changePct;
+          const cost = Number(t.avg_cost)||0;
+          const plPct = cost>0 ? ((cur-cost)/cost*100) : 0;
+          const posVal = t.position * cost;
+          const totalCap = state.account?.total_capital || 0;
+          const posRatio = totalCap>0 ? (posVal/totalCap*100) : 0;
+          return `
+            <div><span class="tg-label">现价</span><span class="tg-val mono">${yuan(cur)}</span></div>
+            <div><span class="tg-label">涨跌幅</span><span class="tg-val ${chg>=0?'up':'down'}">${chg>=0?'+':''}${chg.toFixed(2)}%</span></div>
+            <div><span class="tg-label">盈亏率</span><span class="tg-val ${plPct>=0?'up':'down'}">${plPct>=0?'+':''}${plPct.toFixed(2)}%</span></div>
+            ${posRatio>0?`<div><span class="tg-label">仓位</span><span class="tg-val">${posRatio.toFixed(1)}%</span></div>`:''}
+          `;
+        })() : ''}
         ${t.sell_price?`<div><span class="tg-label">卖出价</span><span class="tg-val">¥${yuan(t.sell_price)}</span></div>`:''}
         <div><span class="tg-label">模式</span><span class="tg-val" style="font-family:inherit;font-size:12px">${t.trade_mode||'--'}</span></div>
       </div>

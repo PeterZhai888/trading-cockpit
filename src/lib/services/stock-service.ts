@@ -253,3 +253,48 @@ async function fetchStockFromEastMoney(
     return null;
   }
 }
+
+/**
+ * 批量获取实时行情（最新价、涨跌幅、量比、换手率、成交额）
+ */
+export async function fetchStockQuotes(codes: string[]): Promise<Record<string, {
+  price: number | null;
+  change_pct: number | null;
+  volume_ratio: number | null;
+  turnover_rate: number | null;
+  turnover_amount: number | null;
+}>> {
+  if (!codes.length) return {};
+  const secids = codes.map(c => c.startsWith("6") ? `1.${c}` : `0.${c}`).join(",");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch(
+      `https://push2delay.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f6,f8,f10,f12,f14&secids=${secids}`,
+      { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    clearTimeout(t);
+    if (!r.ok) return {};
+    const j = await r.json() as { data?: { diff?: Array<{
+      f12?: string; f2?: number; f3?: number; f6?: number; f8?: number; f10?: number;
+    }> } | null };
+    const diff = j.data?.diff;
+    if (!diff) return {};
+    const result: Record<string, any> = {};
+    for (const item of diff) {
+      if (item.f12) {
+        result[item.f12] = {
+          price: item.f2 ?? null,
+          change_pct: item.f3 ?? null,
+          turnover_amount: item.f6 ?? null,
+          turnover_rate: item.f8 ?? null,
+          volume_ratio: item.f10 ?? null,
+        };
+      }
+    }
+    return result;
+  } catch (e) {
+    console.warn("fetchStockQuotes failed:", e);
+    return {};
+  }
+}
