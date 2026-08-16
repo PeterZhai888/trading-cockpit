@@ -2478,7 +2478,7 @@ function renderStats() {
     <div class="card">
       <div class="card-header">
         <div class="card-title"><span class="dot"></span>最近已平仓</div>
-        <span class="card-meta">点击发起 AI 复盘</span>
+        <span class="card-meta" style="cursor:pointer;color:var(--blue)" onclick="switchAIScene('review')">点击发起 AI 复盘 →</span>
       </div>
       <div class="card-body" style="padding:6px 12px 12px">
         <div class="recent-list">${recentRows}</div>
