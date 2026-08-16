@@ -1525,6 +1525,7 @@ function renderTradeItem(t, isOpen) {
       ${isOpen ? `
       <div style="display:flex;gap:8px;margin-top:10px">
         <button class="btn btn-outline btn-sm" style="flex:1" onclick="showAddPosition('${t.trade_id}')">加仓</button>
+        <button class="btn btn-sm" style="flex:1;background:#f97316;color:#fff;border:none" onclick="closePosition('${t.trade_id}')">清仓</button>
         <button class="btn btn-outline btn-sm" style="flex:1" onclick="showReducePosition('${t.trade_id}')">减仓</button>
         <button class="btn btn-danger btn-sm" style="flex:1" onclick="showStopPrice('${t.trade_id}')">改止损</button>
         <button class="btn btn-outline btn-sm" style="flex:0.5;color:var(--red);border-color:var(--red)" onclick="confirmDeleteTrade('${t.trade_id}','${t.stock_name||t.stock_code}')">删除</button>
@@ -1605,6 +1606,21 @@ async function doReducePosition(id) {
     showToast('卖出成功','success');
     closeModal(); await loadAll(); renderTab('trades');
   } catch(e){}
+}
+
+async function closePosition(id) {
+  const t = state.trades.find(x=>x.trade_id===id);
+  if (!t) return showToast('未找到该持仓','error');
+  if (!state.quotes || !state.quotes[t.stock_code]) return showToast('暂无实时行情，请先刷新页面','error');
+  const price = state.quotes[t.stock_code].price;
+  if (!confirm(`确定要清仓【${t.stock_name}（${t.stock_code}）】吗？\n卖出价：${price} 元\n持仓数量：${t.position} 股\n此操作将生成平仓记录并移至已平仓列表。`)) return;
+  try {
+    const r = await api(`/api/trades/${id}/reduce-position`,{method:'POST',body:JSON.stringify({price,qty:t.position,reason:'清仓'})});
+    if (!r.success) { showToast('清仓失败: '+r.error,'error'); return; }
+    showToast('清仓成功','success');
+    state.riskCheck = null;
+    await loadAll(); renderTab('trades');
+  } catch(e){ showToast('清仓失败','error'); }
 }
 
 function showStopPrice(id) {
