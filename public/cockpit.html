@@ -346,7 +346,7 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
     <button class="tab-btn" data-tab="trades">持仓</button>
     <button class="tab-btn" data-tab="check">风控</button>
     <button class="tab-btn" data-tab="ai">AI分析</button>
-    <button class="tab-btn" data-tab="stats">复盘</button>
+    <button class="tab-btn" data-tab="stats">资产分析</button>
   </div>
   <div id="tabContent"></div>
 </div>
@@ -2287,7 +2287,7 @@ document.addEventListener('click', (e)=>{
   if (!e.target.closest('.stock-field')) closeSuggest();
 });
 
-// ====== 第 6 Tab：复盘统计 ======
+// ====== 第 6 Tab：资产分析 ======
 const statsState = { loading: false, data: null, error: null, range: 'all' };
 
 function renderStats() {
@@ -2475,15 +2475,7 @@ function renderStats() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title"><span class="dot"></span>最近已平仓</div>
-        <span class="card-meta" style="cursor:pointer;color:var(--blue)" onclick="switchAIScene('review')">点击发起 AI 复盘 →</span>
-      </div>
-      <div class="card-body" style="padding:6px 12px 12px">
-        <div class="recent-list">${recentRows}</div>
-      </div>
-    </div>
+    
   `;
 }
 
