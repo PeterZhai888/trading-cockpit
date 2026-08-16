@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getAnalysisHistory, type AIAnalysisType } from '@/lib/ai/ai-service';
+import { getAnalysisHistory, deleteAnalysisHistory, type AIAnalysisType } from '@/lib/ai/ai-service';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -35,6 +35,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, data: rows });
   } catch (error) {
     const message = error instanceof Error ? error.message : '查询AI分析历史失败';
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+// DELETE /api/ai/history?id=xxx  — 删除单条，不传 id 则清空全部
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = req.nextUrl.searchParams.get('id');
+    await deleteAnalysisHistory(id ?? undefined);
+    return NextResponse.json({
+      success: true,
+      message: id ? '分析记录已删除' : '所有分析记录已清空',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '删除分析记录失败';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

@@ -2124,14 +2124,36 @@ async function loadAIHistory() {
         <div class="ai-history-item">
           <div class="ai-hi-head">
             <span class="ai-hi-scene">${sceneName}${h.stock_code?' · '+h.stock_code:''}</span>
-            <span class="ai-hi-time">${new Date(h.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span class="ai-hi-time">${new Date(h.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+              <span class="ai-hi-del" onclick="deleteAIHistory('${h.id}')" title="删除">✕</span>
+            </span>
           </div>
           <div class="ai-hi-row"><span>状态</span><b style="color:${statusColor}">${p.建议状态||'--'}</b></div>
           <div class="ai-hi-row"><span>核心逻辑</span><span>${escapeHtml((p.核心逻辑||'').slice(0,80))}${(p.核心逻辑||'').length>80?'...':''}</span></div>
         </div>`;
     }).join('');
-    box.innerHTML = `<div class="card" style="padding:12px 14px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">📜 最近分析记录</div>${items}</div>`;
+    const clearBtn = res.data.length > 0 ? `<div style="text-align:center;margin-top:8px"><span class="clear-btn" onclick="clearAIHistory()" style="font-size:12px;padding:4px 12px">清空全部记录</span></div>` : '';
+    box.innerHTML = `<div class="card" style="padding:12px 14px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">📜 最近分析记录</div>${items}${clearBtn}</div>`;
   } catch {}
+}
+
+async function deleteAIHistory(id) {
+  if (!confirm('确定要删除这条分析记录吗？')) return;
+  try {
+    const r = await fetch('/api/ai/history?id='+id,{method:'DELETE'}).then(r=>r.json());
+    if (r.success) { showToast('已删除','success'); loadAIHistory(); }
+    else showToast(r.error||'删除失败','error');
+  } catch { showToast('删除失败','error'); }
+}
+
+async function clearAIHistory() {
+  if (!confirm('确定要清空所有AI分析记录吗？此操作不可撤销。')) return;
+  try {
+    const r = await fetch('/api/ai/history',{method:'DELETE'}).then(r=>r.json());
+    if (r.success) { showToast('所有分析记录已清空','success'); loadAIHistory(); }
+    else showToast(r.error||'清空失败','error');
+  } catch { showToast('清空失败','error'); }
 }
 
 

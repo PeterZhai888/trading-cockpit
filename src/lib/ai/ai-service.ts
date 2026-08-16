@@ -234,6 +234,17 @@ export async function* analyzeReview(data: ReviewPromptData): AsyncGenerator<AIS
   yield { type: 'done', content: rawContent, result, meta };
 }
 
+export async function deleteAnalysisHistory(id?: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (id) {
+    const { error } = await client.from('ai_analysis').delete().eq('id', id);
+    if (error) throw new Error(`删除分析记录失败: ${error.message}`);
+  } else {
+    const { error } = await client.from('ai_analysis').delete().neq('id', '');
+    if (error) throw new Error(`清空分析记录失败: ${error.message}`);
+  }
+}
+
 export async function getAnalysisHistory(analysisType?: AIAnalysisType, limit = 20) {
   const client = getSupabaseClient();
   let query = client
