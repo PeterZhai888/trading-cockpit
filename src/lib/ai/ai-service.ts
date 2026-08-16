@@ -1,5 +1,4 @@
-// AI 分析服务层 - 统一封装 LLM 调用
-import { LLMClient } from 'coze-coding-dev-sdk';
+// AI 分析服务层 - 统一封装 LLM 调用（标准 HTTP API，兼容 OpenAI / DeepSeek 格式）
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import {
   buildMarketAnalysisPrompt,
@@ -13,7 +12,8 @@ import {
 
 export type AIAnalysisType = 'market' | 'stock' | 'review';
 
-const MODEL_ID = 'doubao-seed-2-0-mini-260215';
+const DEFAULT_MODEL = 'deepseek-chat';
+const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 
 export interface AIStreamEvent {
   type: 'start' | 'delta' | 'done' | 'error';
@@ -77,7 +77,7 @@ async function saveAnalysisRecord(params: {
       input_snapshot: params.inputSnapshot,
       result: params.result,
       raw_content: params.rawContent,
-      model_id: MODEL_ID,
+      model_id: process.env.LLM_MODEL || DEFAULT_MODEL,
     });
     if (error) {
       console.error('保存AI分析记录失败:', error.message);
@@ -88,27 +88,71 @@ async function saveAnalysisRecord(params: {
 }
 
 async function* runLLMStream(systemPrompt: string, userPrompt: string): AsyncGenerator<AIStreamEvent> {
-  const client = new LLMClient();
+  const apiKey = process.env.LLM_API_KEY;
+  if (!apiKey) {
+    yield { type: 'error', error: 'LLM_API_KEY 未配置，请设置环境变量' };
+    return;
+  }
+
+  const baseUrl = (process.env.LLM_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const model = process.env.LLM_MODEL || DEFAULT_MODEL;
+
   const messages = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userPrompt },
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
   ];
 
   let fullContent = '';
   yield { type: 'start' };
 
   try {
-    const stream = client.stream(messages, {
-      model: MODEL_ID,
-      temperature: 0.3,
-      thinking: 'disabled',
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: 0.3,
+      }),
     });
 
-    for await (const chunk of stream) {
-      const delta = typeof chunk.content === 'string' ? chunk.content : '';
-      if (delta) {
-        fullContent += delta;
-        yield { type: 'delta', delta, content: fullContent };
+    if (!response.ok) {
+      const errText = await response.text().catch(() => 'Unknown error');
+      yield { type: 'error', error: `API 请求失败 [${response.status}]: ${errText.slice(0, 200)}` };
+      return;
+    }
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullContent += delta;
+            yield { type: 'delta', delta, content: fullContent };
+          }
+        } catch {
+          // skip malformed JSON lines
+        }
       }
     }
 

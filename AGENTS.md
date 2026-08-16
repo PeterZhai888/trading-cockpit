@@ -62,4 +62,18 @@
 ## UI 设计与组件规范 (UI & Styling Standards)
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
-- Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+## 部署规范
+
+### 独立部署（Railway / Render / Fly.io）
+
+系统已从扣子生态解耦，可部署到任何 Node.js 托管平台：
+
+- **环境变量**：参考 `.env.example`。核心变量：
+  - `COZE_SUPABASE_URL` + `COZE_SUPABASE_ANON_KEY`（Supabase 凭证，从扣子集成管理页面获取）
+  - `LLM_API_KEY`（大模型 API 密钥，推荐 DeepSeek）
+  - `LLM_BASE_URL`（可选，默认 `https://api.deepseek.com`）
+  - `LLM_MODEL`（可选，默认 `deepseek-chat`）
+- **构建**: `bash ./scripts/build.sh`
+- **启动**: `bash ./scripts/start.sh`（自动读取 `PORT` 或 `DEPLOY_RUN_PORT` 环境变量）
+- **Railway**: 已提供 `railway.toml`，连接 GitHub 仓库后自动部署
+- **后续修改**: `git push` → 自动构建部署，无需手动操作
