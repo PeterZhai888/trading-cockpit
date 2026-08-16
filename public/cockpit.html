@@ -1611,9 +1611,38 @@ async function doReducePosition(id) {
 async function closePosition(id) {
   const t = state.trades.find(x=>x.trade_id===id);
   if (!t) return showToast('未找到该持仓','error');
-  if (!state.quotes || !state.quotes[t.stock_code]) return showToast('暂无实时行情，请先刷新页面','error');
-  const price = state.quotes[t.stock_code].price;
-  if (!confirm(`确定要清仓【${t.stock_name}（${t.stock_code}）】吗？\n卖出价：${price} 元\n持仓数量：${t.position} 股\n此操作将生成平仓记录并移至已平仓列表。`)) return;
+  const refPrice = state.quotes && state.quotes[t.stock_code] ? state.quotes[t.stock_code].price : null;
+  showModal(`
+    <div class="modal-title">清仓确认</div>
+    <div class="form-field full" style="margin-bottom:8px">
+      <label class="form-label">股票</label>
+      <div class="form-value mono" style="padding:6px 0;color:var(--text-main)">${t.stock_name}（${t.stock_code}）</div>
+    </div>
+    <div class="form-field full" style="margin-bottom:8px">
+      <label class="form-label">持仓数量</label>
+      <div class="form-value mono" style="padding:6px 0;color:var(--text-main)">${t.position} 股</div>
+    </div>
+    <div class="form-field full" style="margin-bottom:8px">
+      <label class="form-label">当前市场现价</label>
+      <div class="form-value mono" style="padding:6px 0;color:var(--text-secondary)">${refPrice !== null ? refPrice + ' 元' : '暂未获取（请手动输入卖出价）'}</div>
+    </div>
+    <div class="form-field full" style="margin-bottom:12px">
+      <label class="form-label">实际卖出价 <span style="color:var(--red)">*</span></label>
+      <input class="form-input mono" id="cp_price" type="number" step="0.001" placeholder="请输入卖出价" style="width:100%">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal()">取消</button>
+      <button class="modal-btn modal-btn-confirm" id="cp_confirm_btn" onclick="doClosePosition('${id}')">确认清仓</button>
+    </div>
+  `);
+  setTimeout(()=>{ const el=$('#cp_price'); if(el) el.focus(); },100);
+}
+async function doClosePosition(id) {
+  const price = parseFloat($('#cp_price').value);
+  if (isNaN(price) || price <= 0) { showToast('请输入有效的卖出价','error'); return; }
+  closeModal();
+  const t = state.trades.find(x=>x.trade_id===id);
+  if (!t) return showToast('未找到该持仓','error');
   try {
     const r = await api(`/api/trades/${id}/reduce-position`,{method:'POST',body:JSON.stringify({price,qty:t.position,reason:'清仓'})});
     if (!r.success) { showToast('清仓失败: '+r.error,'error'); return; }
